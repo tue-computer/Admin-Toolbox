@@ -273,6 +273,7 @@ function Start-Tool {
 # VERWENDET DEN AKTUELLEN WINDOWS-BENUTZER
 # ============================================================
 
+
 function Get-WindowsLapsPassword {
 
     Clear-Host
@@ -282,34 +283,47 @@ function Get-WindowsLapsPassword {
     Write-Host "                 WINDOWS LAPS" -ForegroundColor Cyan
     Write-Host "============================================================" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "Die Abfrage erfolgt mit dem aktuellen Windows-Benutzer."
-    Write-Host ""
 
     try {
+
+        # Tatsächlich angemeldeten Windows-Benutzer anzeigen
+        $CurrentUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+
+        Write-Host "LAPS-Abfrage mit Windows-Benutzer:" -ForegroundColor Green
+        Write-Host $CurrentUser -ForegroundColor Yellow
+        Write-Host ""
+
+        # LAPS-Modul laden
         Import-Module LAPS -ErrorAction Stop
 
-        if (-not (Get-Command Get-LapsADPassword -ErrorAction SilentlyContinue)) {
-            throw "Get-LapsADPassword wurde nicht gefunden. Bitte das Windows-LAPS-Modul prüfen."
-        }
+        $Command = Get-Command Get-LapsADPassword -ErrorAction Stop
 
         $ComputerName = Read-Host "Computername"
 
         if ([string]::IsNullOrWhiteSpace($ComputerName)) {
-            Write-Host "Kein Computername angegeben." -ForegroundColor Yellow
-            Read-Host "Weiter mit Enter"
-            return
+            throw "Kein Computername angegeben."
         }
+
+        $ComputerName = $ComputerName.Trim()
 
         Write-Host ""
         Write-Host "Rufe LAPS-Kennwort für $ComputerName ab ..." -ForegroundColor Cyan
-        Write-Host ""
 
-        $LapsResult = Get-LapsADPassword -Identity $ComputerName -AsPlainText -ErrorAction Stop
+        $Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+
+        # Ausschließlich aktuelle Windows-Anmeldung verwenden
+        $LapsResult = Get-LapsADPassword `
+            -Identity $ComputerName `
+            -AsPlainText `
+            -ErrorAction Stop
+
+        $Stopwatch.Stop()
 
         if (-not $LapsResult) {
-            throw "Es wurden keine LAPS-Daten zurückgegeben."
+            throw "Keine LAPS-Daten für $ComputerName gefunden."
         }
 
+        Write-Host ""
         Write-Host "============================================================" -ForegroundColor Green
         Write-Host "                 LAPS-ERGEBNIS" -ForegroundColor Green
         Write-Host "============================================================" -ForegroundColor Green
@@ -318,18 +332,24 @@ function Get-WindowsLapsPassword {
         $LapsResult | Format-List *
 
         Write-Host ""
-        Write-Host "Hinweis: Das Kennwort wird im Klartext angezeigt." -ForegroundColor Yellow
-        Read-Host "Weiter mit Enter"
+        Write-Host "Abfragedauer: $([math]::Round($Stopwatch.Elapsed.TotalSeconds,2)) Sekunden" -ForegroundColor Gray
+
     }
     catch {
+
         Write-Host ""
         Write-Host "LAPS-Abfrage fehlgeschlagen!" -ForegroundColor Red
+        Write-Host ""
         Write-Host $_.Exception.Message -ForegroundColor Yellow
         Write-Host ""
-        Write-Host "Prüfe Modulinstallation und Leseberechtigung für LAPS." -ForegroundColor Yellow
-        Read-Host "Weiter mit Enter"
+        Write-Host "Bitte Windows-Benutzerrechte, AD-Verbindung und LAPS-Modul prüfen." -ForegroundColor Yellow
+
     }
+
+    Write-Host ""
+    Read-Host "Weiter mit Enter"
 }
+
 
 # ============================================================
 # STARTKONFIGURATION
