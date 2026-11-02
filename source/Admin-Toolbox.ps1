@@ -94,7 +94,7 @@ try {
             }
 
             Write-Host "Update erfolgreich heruntergeladen." -ForegroundColor Green
-            Write-Host "Admin-Toolbox wird aktualisiert ..." -ForegroundColor Cyan
+            Write-Host "Admin-Toolbox wird aktualisiert..." -ForegroundColor Cyan
 
             # Hilfsprozess vorbereiten
             # Dieser wartet auf das Ende der aktuellen EXE
