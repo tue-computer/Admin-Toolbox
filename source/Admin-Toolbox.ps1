@@ -706,7 +706,6 @@ function Invoke-RemoteGPUpdate {
     Write-Host ""
     Read-Host "Weiter mit Enter"
 }
-
 # ============================================================
 # STARTKONFIGURATION
 # ============================================================
@@ -719,42 +718,48 @@ Write-Host "                    Admin-Toolbox" -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Domäne automatisch aus der angemeldeten Sitzung ermitteln
+# Domäne und angemeldeten Benutzer automatisch ermitteln
 $CurrentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $CurrentDomain = (Get-CimInstance Win32_ComputerSystem).Domain
+$CurrentUser = $CurrentIdentity.Name
 
 Write-Host "Aktuelle Windows-Anmeldung:" -ForegroundColor Cyan
-Write-Host "Benutzer: $($CurrentIdentity.Name)" -ForegroundColor Yellow
+Write-Host "Benutzer: $CurrentUser" -ForegroundColor Yellow
 Write-Host "Domäne:   $CurrentDomain" -ForegroundColor Yellow
 Write-Host ""
 
-# AD-Benutzer weiterhin abfragen
-$AdminName = Read-Host "AD-Administrator (ohne Domäne)"
+# AD-Benutzer optional abfragen
+$AdminName = Read-Host "AD-Administrator (ohne Domäne, Enter = aktueller Benutzer)"
 
 if ([string]::IsNullOrWhiteSpace($AdminName)) {
-    Write-Host "Kein AD-Administrator angegeben!" -ForegroundColor Red
-    Read-Host "Weiter mit Enter"
-    exit
+
+    # Aktuell angemeldeten Benutzer verwenden
+    $AdminUser = $CurrentUser
+    $AdminCredential = $null
+    $SecureAdminPassword = $null
+
+    Write-Host ""
+    Write-Host "Es wird der aktuell angemeldete Benutzer verwendet:" -ForegroundColor Green
+    Write-Host "$AdminUser" -ForegroundColor Yellow
+}
+else {
+
+    # Separaten AD-Benutzer verwenden
+    $AdminUser = "$CurrentDomain\$($AdminName.Trim())"
+
+    $SecureAdminPassword = Read-Host "AD-Kennwort" -AsSecureString
+
+    $AdminCredential = [PSCredential]::new(
+        $AdminUser,
+        $SecureAdminPassword
+    )
+
+    Write-Host ""
+    Write-Host "AD-Verwaltung wird mit folgendem Konto gestartet:" -ForegroundColor Green
+    Write-Host "AD-Konto: $AdminUser" -ForegroundColor Green
 }
 
-# Domäne automatisch mit Benutzer verbinden
-$AdminUser = "$CurrentDomain\$($AdminName.Trim())"
-
-# Kennwort weiterhin sicher abfragen
-$SecureAdminPassword = Read-Host "AD-Kennwort" -AsSecureString
-
-# PSCredential erstellen
-$AdminCredential = [PSCredential]::new(
-    $AdminUser,
-    $SecureAdminPassword
-)
-
-Write-Host ""
-Write-Host "AD-Verwaltung wird mit folgendem Konto gestartet:" -ForegroundColor Green
-Write-Host "AD-Konto: $AdminUser" -ForegroundColor Green
-
 Start-Sleep -Seconds 1
-
 # ============================================================
 # HAUPTMENÜ
 # ============================================================
