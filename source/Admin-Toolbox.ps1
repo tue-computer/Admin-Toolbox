@@ -191,6 +191,10 @@ catch {
     if ($UpdateFile -and (Test-Path -LiteralPath $UpdateFile)) {
         Remove-Item -LiteralPath $UpdateFile -Force -ErrorAction SilentlyContinue
     }
+
+    [Console]::WriteLine("")
+    [Console]::WriteLine("Drücke ENTER, um mit der vorhandenen Version fortzufahren.")
+    [Console]::ReadLine()
 }
 
 # ============================================================
