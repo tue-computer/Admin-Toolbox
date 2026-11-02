@@ -1,0 +1,9 @@
+Invoke-PS2EXE `
+    -InputFile "Admin-Toolbox.ps1" `
+    -OutputFile "Admin-Toolbox.exe" `
+    -Title "Admin Toolbox" `
+    -Description "Active Directory und Serververwaltung" `
+    -Company "T&E" `
+    -Product "Admin-Toolbox" `
+    -RequireAdmin `
+    -UNICODEEncoding

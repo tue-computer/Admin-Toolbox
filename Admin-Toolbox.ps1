@@ -1,10 +1,16 @@
-
+﻿
 # ============================================================
 # ADMIN-TOOLBOX
 # PowerShell-Version
 # ============================================================
 
 $ErrorActionPreference = "Stop"
+
+chcp 65001 | Out-Null
+
+[Console]::InputEncoding  = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
 
 $AdminUser = ""
 $AdminPassword = $null
@@ -16,7 +22,7 @@ $System32 = Join-Path $env:WINDIR "System32"
 $Host.UI.RawUI.WindowTitle = "Admin Toolbox"
 
 # ============================================================
-# KONSOLENFENSTER DYNAMISCH AUF 80 % DER BILDSCHIRMF LÄCHE SETZEN
+# KONSOLENFENSTER DYNAMISCH AUF 80 % DER BILDSCHIRMFLÄCHE SETZEN
 # ============================================================
 
 Add-Type -AssemblyName System.Windows.Forms
@@ -135,8 +141,6 @@ function Start-ADProcess {
             return
         }
 
-        $Parts = $AdminUser.Split("\", 2)
-
         if ($AdminUser -match '\\') {
             $Parts = $AdminUser.Split('\', 2)
             $Domain = $Parts[0]
@@ -179,8 +183,8 @@ function Start-ADProcess {
             throw "Windows-Fehler $ErrorCode beim Starten von $Name."
         }
 
-        # Prozess l uft unabh ngig weiter.
-        # Handles schlie en, ohne auf das Programm zu warten.
+        # Prozess läuft unabhängig weiter.
+        # Handles schließen, ohne auf das Programm zu warten.
         [void][NetOnlyLauncher]::CloseHandle($PI.hThread)
         [void][NetOnlyLauncher]::CloseHandle($PI.hProcess)
     }
@@ -248,7 +252,7 @@ function Start-Tool {
             throw "Programm wurde nicht gefunden: $File"
         }
 
-        # ArgumentList nur  bergeben, wenn Argumente vorhanden sind.
+        # ArgumentList nur übergeben, wenn Argumente vorhanden sind.
         if ([string]::IsNullOrWhiteSpace($Arguments)) {
             Start-Process -FilePath $File -WorkingDirectory $System32
         }
@@ -285,7 +289,7 @@ function Get-WindowsLapsPassword {
         Import-Module LAPS -ErrorAction Stop
 
         if (-not (Get-Command Get-LapsADPassword -ErrorAction SilentlyContinue)) {
-            throw "Get-LapsADPassword wurde nicht gefunden. Bitte das Windows-LAPS-Modul pr fen."
+            throw "Get-LapsADPassword wurde nicht gefunden. Bitte das Windows-LAPS-Modul prüfen."
         }
 
         $ComputerName = Read-Host "Computername"
@@ -297,13 +301,13 @@ function Get-WindowsLapsPassword {
         }
 
         Write-Host ""
-        Write-Host "Rufe LAPS-Kennwort f r $ComputerName ab ..." -ForegroundColor Cyan
+        Write-Host "Rufe LAPS-Kennwort für $ComputerName ab ..." -ForegroundColor Cyan
         Write-Host ""
 
         $LapsResult = Get-LapsADPassword -Identity $ComputerName -AsPlainText -ErrorAction Stop
 
         if (-not $LapsResult) {
-            throw "Es wurden keine LAPS-Daten zur ckgegeben."
+            throw "Es wurden keine LAPS-Daten zurückgegeben."
         }
 
         Write-Host "============================================================" -ForegroundColor Green
@@ -322,7 +326,7 @@ function Get-WindowsLapsPassword {
         Write-Host "LAPS-Abfrage fehlgeschlagen!" -ForegroundColor Red
         Write-Host $_.Exception.Message -ForegroundColor Yellow
         Write-Host ""
-        Write-Host "Pr fe Modulinstallation und Leseberechtigung f r LAPS." -ForegroundColor Yellow
+        Write-Host "Prüfe Modulinstallation und Leseberechtigung für LAPS." -ForegroundColor Yellow
         Read-Host "Weiter mit Enter"
     }
 }
@@ -342,8 +346,8 @@ Write-Host "AD-Administratorkonto eingeben"
 Write-Host "Leer lassen = aktueller Windows-Benutzer"
 Write-Host ""
 
-# Dom ne abfragen
-$DomainInput = Read-Host "Dom ne"
+# Domäne abfragen
+$DomainInput = Read-Host "Domäne"
 
 if ([string]::IsNullOrWhiteSpace($DomainInput)) {
     $AdminUser = ""
@@ -362,7 +366,7 @@ else {
 
     $AdminName = $AdminName.Trim()
 
-    # Dom ne und Benutzer zusammensetzen
+    # Domäne und Benutzer zusammensetzen
     $AdminUser = "$DomainInput\$AdminName"
 
     # Kennwort abfragen
@@ -455,7 +459,7 @@ do {
         }
 
         "4" {
-            $DhcpServer = Read-Host "DHCP-Server eingeben (z.B. SRV-DHCP01)"
+            $DhcpServer = Read-Host "DHCP-Server eingeben"
             if (-not [string]::IsNullOrWhiteSpace($DhcpServer)) {
                 $DhcpPath = Join-Path $System32 "dhcpmgmt.msc"
                 Start-ADProcess -Name "DHCP-Verwaltung" -File $MMC -Arguments "`"$DhcpPath`" /ComputerName $DhcpServer"
@@ -512,9 +516,9 @@ do {
             Write-Host "Admin Toolbox wird beendet." -ForegroundColor Cyan
         }
 
-        default {0
+        default {
             Write-Host ""
-            Write-Host "Ung ltige Auswahl!" -ForegroundColor Red
+            Write-Host "Ungültige Auswahl!" -ForegroundColor Red
             Start-Sleep -Seconds 1
         }
     }
@@ -522,7 +526,7 @@ do {
 } while ($Auswahl -ne "0")
 
 # ============================================================
-# AUFRAEUMEN
+# AUFRÄUMEN
 # ============================================================
 
 $AdminPassword = $null
