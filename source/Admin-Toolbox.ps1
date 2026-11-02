@@ -90,7 +90,7 @@ try {
                 -OutFile $UpdateFile `
                 -UseBasicParsing `
                 -Headers @{
-                    "User-Agent" = "Admin-Toolbox Updater"
+                    "User-Agent" = "Admin Toolbox Updater"
                     "Accept" = "application/vnd.github.raw"
                 } `
                 -ErrorAction Stop
