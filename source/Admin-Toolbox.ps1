@@ -364,79 +364,79 @@ function Invoke-RemoteGPUpdate {
     Write-Host "============================================================" -ForegroundColor Cyan
     Write-Host ""
 
-    # Zielcomputer abfragen
-    $TargetPC = Read-Host "PC-Name"
-
-    if ([string]::IsNullOrWhiteSpace($TargetPC)) {
-        Write-Host "Kein Computername angegeben!" -ForegroundColor Red
-        Read-Host "Weiter mit Enter"
-        return
-    }
-
-    $TargetPC = $TargetPC.Trim()
-
-    # Benutzer abfragen
-    Write-Host ""
-    Write-Host "Verwendete Domäne: $DomainInput" -ForegroundColor Cyan
-
-    $TargetUser = Read-Host "Lokaler Administrator"
-
-    if ([string]::IsNullOrWhiteSpace($TargetUser)) {
-        Write-Host "Kein Benutzer angegeben!" -ForegroundColor Red
-        Read-Host "Weiter mit Enter"
-        return
-    }
-
-    $TargetUser = $TargetUser.Trim()
-
-    # Vorhandene Domäne mit Benutzer kombinieren
-    if ($TargetUser -match '\\' -or $TargetUser -match '@') {
-        $DomainUser = $TargetUser
-    }
-    elseif (-not [string]::IsNullOrWhiteSpace($DomainInput)) {
-        $DomainUser = "$DomainInput\$TargetUser"
-    }
-    else {
-        throw "Keine Domäne in der Startkonfiguration vorhanden."
-    }
-
-    Write-Host ""
-    Write-Host "============================================================" -ForegroundColor Cyan
-    Write-Host "Zielcomputer:    $TargetPC" -ForegroundColor Yellow
-    Write-Host "Domänenbenutzer: $DomainUser" -ForegroundColor Yellow
-    Write-Host "============================================================" -ForegroundColor Cyan
-
-    Write-Host ""
-    $Confirm = Read-Host "GPUpdate jetzt ausführen? (J/N)"
-
-    if ($Confirm -notmatch '^(J|JA)$') {
-        Write-Host "Vorgang abgebrochen." -ForegroundColor Yellow
-        Read-Host "Weiter mit Enter"
-        return
-    }
-
     try {
+        # Zielcomputer abfragen
+        $TargetPC = (Read-Host "Ziel-PC").Trim()
 
-        Write-Host ""
-        Write-Host "Prüfe Verbindung zu $TargetPC ..." -ForegroundColor Cyan
-
-        if (-not (Test-Connection -ComputerName $TargetPC -Count 1 -Quiet)) {
-            throw "Computer $TargetPC ist nicht erreichbar."
+        if ([string]::IsNullOrWhiteSpace($TargetPC)) {
+            Write-Host "Kein Computername angegeben!" -ForegroundColor Red
+            return
         }
 
-        Write-Host "Computer erreichbar." -ForegroundColor Green
+        # Benutzer abfragen
+        Write-Host ""
+        Write-Host "Verwendete Domäne: $DomainInput" -ForegroundColor Cyan
 
-        # GroupPolicy-Modul laden
+        $TargetUser = (Read-Host "Lokaler Administrator").Trim()
+
+        if ([string]::IsNullOrWhiteSpace($TargetUser)) {
+            Write-Host "Kein Benutzer angegeben!" -ForegroundColor Red
+            return
+        }
+
+        # Domäne und Benutzer kombinieren
+        if ($TargetUser -match '\\' -or $TargetUser -match '@') {
+            $DomainUser = $TargetUser
+        }
+        elseif (-not [string]::IsNullOrWhiteSpace($DomainInput)) {
+            $DomainUser = "$DomainInput\$TargetUser"
+        }
+        else {
+            Write-Host "Keine Domäne vorhanden!" -ForegroundColor Red
+            return
+        }
+
+        # Kennwort sicher abfragen
+        $SecurePassword = Read-Host "Kennwort für $DomainUser" -AsSecureString
+        $Credential = [PSCredential]::new($DomainUser, $SecurePassword)
+
+        Write-Host ""
+        Write-Host "============================================================" -ForegroundColor Cyan
+        Write-Host "Zielcomputer:    $TargetPC" -ForegroundColor Yellow
+        Write-Host "Benutzer:        $DomainUser" -ForegroundColor Yellow
+        Write-Host "============================================================" -ForegroundColor Cyan
+
+        Write-Host ""
+        $Confirm = Read-Host "GPUpdate jetzt ausführen? (J/N)"
+
+        if ($Confirm -notmatch '^(J|JA)$') {
+            Write-Host "Vorgang abgebrochen." -ForegroundColor Yellow
+            return
+        }
+
+        # GroupPolicy-Modul lokal laden
         Import-Module GroupPolicy -ErrorAction Stop
 
         Write-Host ""
-        Write-Host "Starte zentrales GPUpdate ..." -ForegroundColor Cyan
+        Write-Host "Verbinde mit $TargetPC ..." -ForegroundColor Cyan
 
-        Invoke-GPUpdate `
-            -Computer $TargetPC `
-            -Force `
-            -RandomDelayInMinutes 0 `
-            -ErrorAction Stop
+        # Remote-Verbindung mit dem eingegebenen Benutzer
+        Invoke-Command `
+            -ComputerName $TargetPC `
+            -Credential $Credential `
+            -ErrorAction Stop `
+            -ScriptBlock {
+
+                Import-Module GroupPolicy -ErrorAction Stop
+
+                Write-Host "Starte GPUpdate auf $env:COMPUTERNAME ..." -ForegroundColor Cyan
+
+                Invoke-GPUpdate `
+                    -Computer $env:COMPUTERNAME `
+                    -Force `
+                    -RandomDelayInMinutes 0 `
+                    -ErrorAction Stop
+            }
 
         Write-Host ""
         Write-Host "============================================================" -ForegroundColor Green
@@ -447,18 +447,17 @@ function Invoke-RemoteGPUpdate {
         Write-Host "Benutzer:     $DomainUser" -ForegroundColor Yellow
         Write-Host ""
         Write-Host "Die Gruppenrichtlinienaktualisierung wurde remote angestoßen." -ForegroundColor Green
-        Write-Host ""
-        Write-Host "Hinweis: Invoke-GPUpdate aktualisiert die Computer-" -ForegroundColor Gray
-        Write-Host "und die auf dem Ziel-PC angemeldeten Benutzersitzungen." -ForegroundColor Gray
-
+        Write-Host "Computer- und angemeldete Benutzer-Richtlinien werden berücksichtigt." -ForegroundColor Gray
     }
     catch {
-
         Write-Host ""
         Write-Host "GPUPDATE FEHLGESCHLAGEN!" -ForegroundColor Red
         Write-Host ""
         Write-Host $_.Exception.Message -ForegroundColor Yellow
-
+    }
+    finally {
+        $SecurePassword = $null
+        $Credential = $null
     }
 
     Write-Host ""
@@ -551,25 +550,43 @@ do {
     Write-Host "  ACTIVE DIRECTORY"
     Write-Host "------------------------------------------------------------"
     Write-Host ""
-    Write-Host "  [1]  AD Benutzer und Computer"
-    Write-Host "  [2]  AD PowerShell"
-    Write-Host "  [3]  DNS-Verwaltung"
-    Write-Host "  [4]  DHCP-Verwaltung"
-    Write-Host "  [5]  Gruppenrichtlinienverwaltung (GPO)"
-    Write-Host "  [6]  Zentrales GPUpdate auf Remote-PC"
+    Write-Host "  [10]  AD Benutzer und Computer"
+    Write-Host "  [11]  AD PowerShell"
     Write-Host ""
 
     Write-Host "------------------------------------------------------------"
-    Write-Host "  SERVER UND INFRASTRUKTUR"
+    Write-Host "  DNS & DHCP"
     Write-Host "------------------------------------------------------------"
     Write-Host ""
-    Write-Host "  [7]  Windows LAPS Kennwortabfrage"
-    Write-Host "  [8]  DFS-Verwaltung"
-    Write-Host "  [9]  Computerverwaltung"
-    Write-Host "  [10] Ereignisanzeige"
-    Write-Host "  [11] Hyper-V-Manager"
-    Write-Host "  [12] Server-Manager"
-    Write-Host "  [13] Druckverwaltung"
+    Write-Host "  [30]  DNS-Verwaltung"
+    Write-Host "  [31]  DHCP-Verwaltung"
+    Write-Host ""
+
+    Write-Host "------------------------------------------------------------"
+    Write-Host "  Gruppenrichtlinien"
+    Write-Host "------------------------------------------------------------"
+    Write-Host ""
+    Write-Host "  [40]  Gruppenrichtlinien-Verwaltung"
+    Write-Host "  [41]  GP-Update auf Remote-PC"
+    Write-Host ""
+
+    Write-Host "------------------------------------------------------------"
+    Write-Host "  Server"
+    Write-Host "------------------------------------------------------------"
+    Write-Host ""
+    Write-Host "  [50]  Computerverwaltung"
+    Write-Host "  [51]  Ereignisanzeige"
+    Write-Host "  [52]  Server-Manager"
+    Write-Host "  [53]  Druckverwaltung"
+    Write-Host "  [54]  Hyper-V-Manager"
+    Write-Host "  [55]  DFS-Verwaltung"
+    Write-Host ""
+
+    Write-Host "------------------------------------------------------------"
+    Write-Host "  Sicherheit"
+    Write-Host "------------------------------------------------------------"
+    Write-Host ""
+    Write-Host "  [80]  LAPS-Kennwort auslesen"
     Write-Host ""
 
     Write-Host "------------------------------------------------------------"
@@ -585,19 +602,19 @@ do {
 
         # ACTIVE DIRECTORY
 
-        "1" {
+        "10" {
             Start-MmcTool "AD Benutzer und Computer" "dsa.msc" $true
         }
 
-        "2" {
+        "11" {
             Start-ADProcess "AD PowerShell" $PowerShellExe '-NoExit -Command "Import-Module ActiveDirectory"'
         }
 
-        "3" {
+        "30" {
             Start-MmcTool "DNS-Verwaltung" "dnsmgmt.msc" $true
         }
 
-        "4" {
+        "31" {
             $DhcpServer = Read-Host "DHCP-Server eingeben"
 
             if (-not [string]::IsNullOrWhiteSpace($DhcpServer)) {
@@ -607,27 +624,25 @@ do {
             }
         }
 
-        "5" {
+        "40" {
             $GpoPath = Join-Path $System32 "gpmc.msc"
 
             Start-ADProcess -Name "Gruppenrichtlinienverwaltung" -File $MMC -Arguments "`"$GpoPath`""
         }
 
-        "6" {
+        "41" {
             Invoke-RemoteGPUpdate
         }
 
-        # SERVER UND INFRASTRUKTUR
-
-        "7" {
+        "80" {
             Get-WindowsLapsPassword
         }
 
-        "8" {
+        "55" {
             Start-MmcTool "DFS-Verwaltung" "dfsmgmt.msc"
         }
 
-        "9" {
+        "50" {
             $TargetPC = Read-Host "Ziel-PC eingeben"
 
             if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
@@ -638,8 +653,8 @@ do {
             }
         }
 
-        "10" {
-            $TargetPC = Read-Host "Ziel-PC eingeben (z.B. PC-001)"
+        "51" {
+            $TargetPC = Read-Host "Ziel-PC"
 
             if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
                 $EventViewerExe = Join-Path $System32 "eventvwr.exe"
@@ -648,15 +663,15 @@ do {
             }
         }
 
-        "11" {
+        "54" {
             Start-MmcTool "Hyper-V-Manager" "virtmgmt.msc"
         }
 
-        "12" {
+        "52" {
             Start-Tool "Server-Manager" (Join-Path $System32 "ServerManager.exe")
         }
 
-        "13" {
+        "53" {
             Start-MmcTool "Druckverwaltung" "printmanagement.msc"
         }
 
