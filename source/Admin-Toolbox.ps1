@@ -5,172 +5,183 @@
 
 $ErrorActionPreference = "Stop"
 
-
 # ============================================================
 # AUTOMATISCHES UPDATE DER ADMIN-TOOLBOX
 # ============================================================
 
 try {
 
-    # Aktuell ausgeführte EXE ermitteln
+    # Nur bei gestarteter EXE ausführen
     $ExePath = [Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
 
-    # Nur innerhalb der kompilierten Admin-Toolbox ausführen
-    if ([IO.Path]::GetFileName($ExePath) -ieq "Admin-Toolbox.exe") {
+    if ([System.IO.Path]::GetFileName($ExePath) -ieq "Admin-Toolbox.exe") {
 
-        $UpdateUrl = "https://raw.githubusercontent.com/tue-computer/Admin-Toolbox/main/source/Admin-Toolbox.exe"
-
+        # GitHub-Einstellungen
         $ApiUrl = "https://api.github.com/repos/tue-computer/Admin-Toolbox/contents/source/Admin-Toolbox.exe?ref=main"
+        $DownloadUrl = "https://raw.githubusercontent.com/tue-computer/Admin-Toolbox/main/source/Admin-Toolbox.exe"
 
-        $UpdatePath = "$ExePath.update"
-
-        # GitHub-Datei-SHA berechnen
-        function Get-GitBlobSHA1 {
-            param([string]$Path)
-
-            $Bytes = [IO.File]::ReadAllBytes($Path)
-
-            $Header = [Text.Encoding]::ASCII.GetBytes(
-                "blob $($Bytes.Length)`0"
-            )
-
-            $Stream = New-Object IO.MemoryStream
-
-            $Stream.Write($Header, 0, $Header.Length)
-            $Stream.Write($Bytes, 0, $Bytes.Length)
-
-            $SHA1 = [Security.Cryptography.SHA1]::Create()
-
-            try {
-                $Hash = $SHA1.ComputeHash($Stream.ToArray())
-                return ([BitConverter]::ToString($Hash)).Replace("-", "").ToLowerInvariant()
-            }
-            finally {
-                $SHA1.Dispose()
-                $Stream.Dispose()
-            }
-        }
+        # TLS 1.2 aktivieren
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
         Write-Host ""
-        Write-Host "Prüfe auf Updates ..." -ForegroundColor Cyan
+        Write-Host "Prüfe auf Updates..." -ForegroundColor Cyan
 
-        # GitHub-Version abfragen
+        # GitHub-Dateiinformationen abrufen
         $GitHubInfo = Invoke-RestMethod `
             -Uri $ApiUrl `
             -Headers @{
                 "User-Agent" = "Admin-Toolbox-Updater"
                 "Accept" = "application/vnd.github+json"
             } `
-            -TimeoutSec 15 `
             -ErrorAction Stop
 
-        # Lokale und entfernte Version vergleichen
-        $LocalSHA = Get-GitBlobSHA1 -Path $ExePath
-        $RemoteSHA = $GitHubInfo.sha
+        if (-not $GitHubInfo.sha -or $GitHubInfo.type -ne "file") {
+            throw "Ungültige Dateiinformationen von GitHub erhalten."
+        }
 
-        if ($LocalSHA -ne $RemoteSHA) {
+        # Funktion zur Berechnung des GitHub-Datei-Hashes
+        $GetGitHash = {
+
+            param([string]$Path)
+
+            $Info = Get-Item -LiteralPath $Path
+            $Header = [Text.Encoding]::UTF8.GetBytes("blob $($Info.Length)`0")
+
+            $SHA = [Security.Cryptography.SHA1]::Create()
+            $File = [IO.File]::OpenRead($Path)
+
+            try {
+
+                $null = $SHA.TransformBlock(
+                    $Header, 0, $Header.Length, $Header, 0
+                )
+
+                $Buffer = New-Object byte[] 8192
+
+                while (($Count = $File.Read($Buffer, 0, $Buffer.Length)) -gt 0) {
+                    $null = $SHA.TransformBlock(
+                        $Buffer, 0, $Count, $Buffer, 0
+                    )
+                }
+
+                $Empty = New-Object byte[] 0
+                $null = $SHA.TransformFinalBlock($Empty, 0, 0)
+
+                return [BitConverter]::ToString(
+                    $SHA.Hash
+                ).Replace("-", "").ToLowerInvariant()
+
+            }
+            finally {
+                $File.Dispose()
+                $SHA.Dispose()
+            }
+        }
+
+        # Lokale Version prüfen
+        $LocalHash = & $GetGitHash $ExePath
+
+        if ($LocalHash -eq $GitHubInfo.sha.ToLowerInvariant()) {
+
+            Write-Host "Admin-Toolbox ist aktuell." -ForegroundColor Green
+
+        }
+        else {
 
             Write-Host "Neue Version gefunden!" -ForegroundColor Yellow
-            Write-Host "Lade Update herunter ..." -ForegroundColor Cyan
+            Write-Host "Lade Update herunter..." -ForegroundColor Cyan
 
-            # Eventuelle alte Update-Datei entfernen
-            if (Test-Path $UpdatePath) {
-                Remove-Item $UpdatePath -Force
+            # Temporäre Datei im gleichen Verzeichnis
+            $UpdateFile = "$ExePath.update"
+
+            if (Test-Path -LiteralPath $UpdateFile) {
+                Remove-Item -LiteralPath $UpdateFile -Force
             }
 
             # Neue EXE herunterladen
             Invoke-WebRequest `
-                -Uri $UpdateUrl `
-                -OutFile $UpdatePath `
+                -Uri $DownloadUrl `
+                -OutFile $UpdateFile `
                 -UseBasicParsing `
-                -TimeoutSec 60 `
+                -Headers @{
+                    "User-Agent" = "Admin-Toolbox-Updater"
+                } `
                 -ErrorAction Stop
 
             # Download überprüfen
-            $DownloadedSHA = Get-GitBlobSHA1 -Path $UpdatePath
+            $DownloadedHash = & $GetGitHash $UpdateFile
 
-            if ($DownloadedSHA -ne $RemoteSHA) {
-                throw "Update-Prüfung fehlgeschlagen. Die heruntergeladene Datei stimmt nicht mit GitHub überein."
+            if ($DownloadedHash -ne $GitHubInfo.sha.ToLowerInvariant()) {
+                throw "Die heruntergeladene Datei stimmt nicht mit GitHub überein."
             }
 
-            Write-Host "Update erfolgreich heruntergeladen." -ForegroundColor Green
-            Write-Host "Admin-Toolbox wird aktualisiert..." -ForegroundColor Cyan
+            Write-Host "Download erfolgreich überprüft." -ForegroundColor Green
+            Write-Host "Installiere Update..." -ForegroundColor Cyan
 
-            # Hilfsprozess vorbereiten
-            # Dieser wartet auf das Ende der aktuellen EXE
-            # und ersetzt anschließend die laufende Datei.
+            # Prozess-ID der aktuellen EXE
+            $ParentPid = $PID
 
-            $TargetLiteral = "'" + $ExePath.Replace("'", "''") + "'"
-            $UpdateLiteral = "'" + $UpdatePath.Replace("'", "''") + "'"
+            # Hilfsskript für den Austausch erstellen
+            $UpdateScript = @'
+param(
+    [int]$ParentPid,
+    [string]$UpdateFile,
+    [string]$TargetExe
+)
 
-            $ParentPID = [Diagnostics.Process]::GetCurrentProcess().Id
-
-            $HelperCode = @'
-$TargetExe = '__TARGET__'
-$UpdateFile = '__UPDATE__'
-$ParentPid = __PID__
-
-# Warten, bis die aktuelle EXE beendet wurde
 while (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue) {
     Start-Sleep -Milliseconds 500
 }
 
 try {
-
-    # Aktuelle EXE ersetzen
     Move-Item -LiteralPath $UpdateFile -Destination $TargetExe -Force -ErrorAction Stop
-
-    # Neue Version starten
     Start-Process -FilePath $TargetExe
-
 }
 catch {
-
-    # Bei Fehler alte EXE erneut starten
     Start-Process -FilePath $TargetExe
-
 }
 '@
 
-            $HelperCode = $HelperCode.Replace("__TARGET__", $TargetLiteral)
-            $HelperCode = $HelperCode.Replace("__UPDATE__", $UpdateLiteral)
-            $HelperCode = $HelperCode.Replace("__PID__", [string]$ParentPID)
-
-            # PowerShell-Code verschlüsselt als Base64 übergeben
-            $EncodedHelper = [Convert]::ToBase64String(
-                [Text.Encoding]::Unicode.GetBytes($HelperCode)
+            # Hilfsskript mit Parametern versehen
+            $EncodedScript = [Convert]::ToBase64String(
+                [Text.Encoding]::Unicode.GetBytes(
+                    $UpdateScript
+                )
             )
 
             $PowerShellExe = Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\powershell.exe"
 
-            # Hilfsprozess unsichtbar starten
+            # Hilfsprozess starten
             Start-Process `
                 -FilePath $PowerShellExe `
-                -ArgumentList "-NoProfile -WindowStyle Hidden -EncodedCommand $EncodedHelper" `
-                -WindowStyle Hidden
+                -ArgumentList @(
+                    "-NoProfile"
+                    "-ExecutionPolicy Bypass"
+                    "-WindowStyle Hidden"
+                    "-EncodedCommand $EncodedScript"
+                    $ParentPid
+                    $UpdateFile
+                    $ExePath
+                ) `
+                -WindowStyle Hidden `
+                -ErrorAction Stop
 
-            # Aktuelle EXE beenden
+            # Aktuelles Programm beenden
             exit
         }
-        else {
-
-            Write-Host "Admin-Toolbox ist aktuell." -ForegroundColor Green
-
-        }
     }
-
 }
 catch {
 
     Write-Host ""
-    Write-Host "Update konnte nicht durchgeführt werden." -ForegroundColor Yellow
-    Write-Host $_.Exception.Message -ForegroundColor DarkYellow
-    Write-Host "Admin-Toolbox wird mit der vorhandenen Version gestartet." -ForegroundColor Gray
+    Write-Host "Update-Prüfung fehlgeschlagen." -ForegroundColor Red
+    Write-Host $_.Exception.Message -ForegroundColor Red
+    Write-Host "Starte mit der vorhandenen Version." -ForegroundColor Yellow
+    Write-Host ""
 
-    if ($UpdatePath -and (Test-Path $UpdatePath)) {
-        Remove-Item $UpdatePath -Force -ErrorAction SilentlyContinue
+    if ($UpdateFile -and (Test-Path -LiteralPath $UpdateFile)) {
+        Remove-Item -LiteralPath $UpdateFile -Force -ErrorAction SilentlyContinue
     }
-
 }
 
 # ============================================================
