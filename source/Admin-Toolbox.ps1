@@ -115,32 +115,46 @@ try {
             # Prozess-ID der aktuellen EXE
             $ParentPid = $PID
 
-            # Hilfsskript für den Austausch erstellen
-            $UpdateScript = @'
-param(
-    [int]$ParentPid,
-    [string]$UpdateFile,
-    [string]$TargetExe
-)
+            # Pfade sicher kodieren
+            $UpdateFileEncoded = [Convert]::ToBase64String(
+                [Text.Encoding]::UTF8.GetBytes($UpdateFile)
+            )
 
-while (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue) {
+            $ExePathEncoded = [Convert]::ToBase64String(
+                [Text.Encoding]::UTF8.GetBytes($ExePath)
+            )
+
+            # Hilfsskript mit fest eingebetteten Parametern
+            $UpdateScript = @"
+`$ParentPid = $ParentPid
+`$UpdateFile = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$UpdateFileEncoded'))
+`$TargetExe = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$ExePathEncoded'))
+
+# Warten, bis die Admin-Toolbox vollständig beendet ist
+while (Get-Process -Id `$ParentPid -ErrorAction SilentlyContinue) {
     Start-Sleep -Milliseconds 500
 }
 
 try {
-    Move-Item -LiteralPath $UpdateFile -Destination $TargetExe -Force -ErrorAction Stop
-    Start-Process -FilePath $TargetExe
+    # Update-Datei an die Stelle der bisherigen EXE verschieben
+    Move-Item -LiteralPath `$UpdateFile -Destination `$TargetExe -Force -ErrorAction Stop
+
+    # Neue Version starten
+    Start-Process -FilePath `$TargetExe -ErrorAction Stop
 }
 catch {
-    Start-Process -FilePath $TargetExe
+    Add-Type -AssemblyName System.Windows.Forms
+    [System.Windows.Forms.MessageBox]::Show(
+        "Update konnte nicht installiert werden:`n`n`$(`$_.Exception.Message)`n`nDie Update-Datei liegt weiterhin unter:`n`$UpdateFile",
+        "Admin-Toolbox - Updatefehler",
+        [System.Windows.Forms.MessageBoxButtons]::OK,
+        [System.Windows.Forms.MessageBoxIcon]::Error
+    )
 }
-'@
-
-            # Hilfsskript mit Parametern versehen
+"@
+            # Hilfsskript kodieren
             $EncodedScript = [Convert]::ToBase64String(
-                [Text.Encoding]::Unicode.GetBytes(
-                    $UpdateScript
-                )
+                [Text.Encoding]::Unicode.GetBytes($UpdateScript)
             )
 
             $PowerShellExe = Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\powershell.exe"
@@ -148,15 +162,7 @@ catch {
             # Hilfsprozess starten
             Start-Process `
                 -FilePath $PowerShellExe `
-                -ArgumentList @(
-                    "-NoProfile"
-                    "-ExecutionPolicy Bypass"
-                    "-WindowStyle Hidden"
-                    "-EncodedCommand $EncodedScript"
-                    $ParentPid
-                    $UpdateFile
-                    $ExePath
-                ) `
+                -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand $EncodedScript" `
                 -WindowStyle Hidden `
                 -ErrorAction Stop
 
