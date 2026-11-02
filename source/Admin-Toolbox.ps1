@@ -193,7 +193,7 @@ catch {
     }
 
     [Console]::WriteLine("")
-    [Console]::WriteLine("Drücke ENTER, um mit der vorhandenen Version fortzufahren.")
+    [Console]::WriteLine("Drücke Enter, um mit vorhandener Version fortzufahren.")
     [Console]::ReadLine()
 }
 
