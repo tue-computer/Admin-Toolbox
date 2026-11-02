@@ -548,7 +548,6 @@ do {
 
     Write-Host "------------------------------------------------------------"
     Write-Host "  ACTIVE DIRECTORY"
-    Write-Host "------------------------------------------------------------"
     Write-Host ""
     Write-Host "  [10]  AD Benutzer und Computer"
     Write-Host "  [11]  AD PowerShell"
@@ -556,7 +555,6 @@ do {
 
     Write-Host "------------------------------------------------------------"
     Write-Host "  DNS & DHCP"
-    Write-Host "------------------------------------------------------------"
     Write-Host ""
     Write-Host "  [30]  DNS-Verwaltung"
     Write-Host "  [31]  DHCP-Verwaltung"
@@ -564,7 +562,6 @@ do {
 
     Write-Host "------------------------------------------------------------"
     Write-Host "  Gruppenrichtlinien"
-    Write-Host "------------------------------------------------------------"
     Write-Host ""
     Write-Host "  [40]  Gruppenrichtlinien-Verwaltung"
     Write-Host "  [41]  GP-Update auf Remote-PC"
@@ -572,7 +569,6 @@ do {
 
     Write-Host "------------------------------------------------------------"
     Write-Host "  Server"
-    Write-Host "------------------------------------------------------------"
     Write-Host ""
     Write-Host "  [50]  Computerverwaltung"
     Write-Host "  [51]  Ereignisanzeige"
@@ -584,12 +580,11 @@ do {
 
     Write-Host "------------------------------------------------------------"
     Write-Host "  Sicherheit"
-    Write-Host "------------------------------------------------------------"
     Write-Host ""
     Write-Host "  [80]  LAPS-Kennwort auslesen"
     Write-Host ""
 
-    Write-Host "------------------------------------------------------------"
+    Write-Host "============================================================"
     Write-Host ""
     Write-Host "  [0]  Beenden"
     Write-Host ""
