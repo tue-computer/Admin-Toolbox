@@ -18,7 +18,7 @@ $MMC = Join-Path $env:WINDIR "System32\mmc.exe"
 $PowerShellExe = Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\powershell.exe"
 $System32 = Join-Path $env:WINDIR "System32"
 
-$Host.UI.RawUI.WindowTitle = "Admin Toolbox"
+$Host.UI.RawUI.WindowTitle = "Admin-Toolbox"
 
 
 # ============================================================
@@ -440,7 +440,6 @@ function Invoke-RemoteGPUpdate {
     Read-Host "Weiter mit Enter"
 }
 
-
 # ============================================================
 # STARTKONFIGURATION
 # ============================================================
@@ -449,43 +448,45 @@ Clear-Host
 
 Write-Host ""
 Write-Host "============================================================" -ForegroundColor Cyan
-Write-Host "                    ADMIN TOOLBOX" -ForegroundColor Cyan
+Write-Host "                    Admin-Toolbox" -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "AD-Administratorkonto eingeben"
-Write-Host "Leer lassen = aktueller Windows-Benutzer"
+
+# Domäne automatisch aus der angemeldeten Sitzung ermitteln
+$CurrentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$CurrentDomain = (Get-CimInstance Win32_ComputerSystem).Domain
+
+Write-Host "Aktuelle Windows-Anmeldung:" -ForegroundColor Cyan
+Write-Host "Benutzer: $($CurrentIdentity.Name)" -ForegroundColor Yellow
+Write-Host "Domäne:   $CurrentDomain" -ForegroundColor Yellow
 Write-Host ""
 
-$DomainInput = Read-Host "Domäne"
+# AD-Benutzer weiterhin abfragen
+$AdminName = Read-Host "AD-Administrator (ohne Domäne)"
 
-if (-not [string]::IsNullOrWhiteSpace($DomainInput)) {
-    $DomainInput = $DomainInput.Trim()
-    $AdminName = Read-Host "AD-Administrator"
-
-    if ([string]::IsNullOrWhiteSpace($AdminName)) {
-        Write-Host "Kein AD-Administrator angegeben!" -ForegroundColor Red
-        Read-Host "Weiter mit Enter"
-        exit
-    }
-
-    $AdminUser = "$DomainInput\$($AdminName.Trim())"
-
-    # Kennwort ausschließlich als SecureString einlesen
-    $SecureAdminPassword = Read-Host "Kennwort" -AsSecureString
-
-    # PSCredential verwendet denselben SecureString
-    $AdminCredential = [PSCredential]::new($AdminUser, $SecureAdminPassword)
-
-    Write-Host ""
-    Write-Host "AD-Verwaltung wird mit folgendem Konto gestartet:" -ForegroundColor Green
-    Write-Host "AD-Konto: $AdminUser" -ForegroundColor Green
-}
-else {
-    Write-Host "AD-Verwaltung verwendet das aktuelle Windows-Konto." -ForegroundColor Yellow
+if ([string]::IsNullOrWhiteSpace($AdminName)) {
+    Write-Host "Kein AD-Administrator angegeben!" -ForegroundColor Red
+    Read-Host "Weiter mit Enter"
+    exit
 }
 
-Start-Sleep -Seconds 2
+# Domäne automatisch mit Benutzer verbinden
+$AdminUser = "$CurrentDomain\$($AdminName.Trim())"
 
+# Kennwort weiterhin sicher abfragen
+$SecureAdminPassword = Read-Host "AD-Kennwort" -AsSecureString
+
+# PSCredential erstellen
+$AdminCredential = [PSCredential]::new(
+    $AdminUser,
+    $SecureAdminPassword
+)
+
+Write-Host ""
+Write-Host "AD-Verwaltung wird mit folgendem Konto gestartet:" -ForegroundColor Green
+Write-Host "AD-Konto: $AdminUser" -ForegroundColor Green
+
+Start-Sleep -Seconds 1
 
 # ============================================================
 # HAUPTMENÜ
@@ -496,7 +497,7 @@ do {
 
     Write-Host ""
     Write-Host "============================================================" -ForegroundColor Cyan
-    Write-Host "                    ADMIN TOOLBOX" -ForegroundColor Cyan
+    Write-Host "                    Admin-Toolbox" -ForegroundColor Cyan
     Write-Host "============================================================" -ForegroundColor Cyan
 
     if ($AdminUser) {
@@ -644,7 +645,7 @@ do {
 
         "0" {
             Write-Host ""
-            Write-Host "Admin Toolbox wird beendet." -ForegroundColor Cyan
+            Write-Host "Admin-Toolbox wird beendet." -ForegroundColor Cyan
         }
 
         default {
