@@ -113,9 +113,10 @@ try {
             Write-Host "Installiere Update..." -ForegroundColor Cyan
 
             # Prozess-ID der aktuellen EXE
-            $ParentPid = $PID
+            # Prozess-ID der aktuellen EXE ermitteln
+            $ParentPid = [Diagnostics.Process]::GetCurrentProcess().Id
 
-            # Pfade sicher kodieren
+            # Pfade kodieren
             $UpdateFileEncoded = [Convert]::ToBase64String(
                 [Text.Encoding]::UTF8.GetBytes($UpdateFile)
             )
@@ -124,50 +125,86 @@ try {
                 [Text.Encoding]::UTF8.GetBytes($ExePath)
             )
 
-            # Hilfsskript mit fest eingebetteten Parametern
-            $UpdateScript = @"
-`$ParentPid = $ParentPid
-`$UpdateFile = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$UpdateFileEncoded'))
-`$TargetExe = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$ExePathEncoded'))
+            # Temporäres Hilfsskript erstellen
+            $HelperPath = Join-Path $env:TEMP "AdminToolbox_Update_$ParentPid.ps1"
 
-# Warten, bis die Admin-Toolbox vollständig beendet ist
-while (Get-Process -Id `$ParentPid -ErrorAction SilentlyContinue) {
-    Start-Sleep -Milliseconds 500
-}
+            $HelperScript = @'
+$ParentPid = __PARENT_PID__
+$UpdateFile = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__UPDATE_FILE__'))
+$TargetExe = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__TARGET_EXE__'))
+
+$LogFile = Join-Path (Split-Path -Parent $TargetExe) "Admin-Toolbox-Update.log"
 
 try {
-    # Update-Datei an die Stelle der bisherigen EXE verschieben
-    Move-Item -LiteralPath `$UpdateFile -Destination `$TargetExe -Force -ErrorAction Stop
+    "Update-Hilfsprozess gestartet: $(Get-Date)" | Set-Content -LiteralPath $LogFile
+
+    # Warten, bis die alte EXE beendet ist
+    $ParentProcess = Get-Process -Id $ParentPid -ErrorAction SilentlyContinue
+
+    if ($ParentProcess) {
+        $ParentProcess.WaitForExit()
+    }
+
+    Start-Sleep -Seconds 2
+
+    # EXE ersetzen
+    if (Test-Path -LiteralPath $TargetExe) {
+        [System.IO.File]::Replace($UpdateFile, $TargetExe, $null)
+    }
+    else {
+        [System.IO.File]::Move($UpdateFile, $TargetExe)
+    }
+
+    "EXE erfolgreich ersetzt: $(Get-Date)" | Add-Content -LiteralPath $LogFile
 
     # Neue Version starten
-    Start-Process -FilePath `$TargetExe -ErrorAction Stop
+    Start-Process -FilePath $TargetExe -ErrorAction Stop
+
+    "Neue EXE gestartet: $(Get-Date)" | Add-Content -LiteralPath $LogFile
 }
 catch {
+    $ErrorText = $_.Exception.ToString()
+    $ErrorText | Add-Content -LiteralPath $LogFile
+
     Add-Type -AssemblyName System.Windows.Forms
+
     [System.Windows.Forms.MessageBox]::Show(
-        "Update konnte nicht installiert werden:`n`n`$(`$_.Exception.Message)`n`nDie Update-Datei liegt weiterhin unter:`n`$UpdateFile",
+        "Das Update konnte nicht installiert werden:`n`n$ErrorText`n`nLogdatei: $LogFile",
         "Admin-Toolbox - Updatefehler",
         [System.Windows.Forms.MessageBoxButtons]::OK,
         [System.Windows.Forms.MessageBoxIcon]::Error
     )
 }
-"@
-            # Hilfsskript kodieren
-            $EncodedScript = [Convert]::ToBase64String(
-                [Text.Encoding]::Unicode.GetBytes($UpdateScript)
-            )
+'@
 
-            $PowerShellExe = Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\powershell.exe"
+        $HelperScript = $HelperScript.Replace('__PARENT_PID__', [string]$ParentPid)
+        $HelperScript = $HelperScript.Replace('__UPDATE_FILE__', $UpdateFileEncoded)
+        $HelperScript = $HelperScript.Replace('__TARGET_EXE__', $ExePathEncoded)
 
-            # Hilfsprozess starten
-            Start-Process `
-                -FilePath $PowerShellExe `
-                -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand $EncodedScript" `
-                -WindowStyle Hidden `
-                -ErrorAction Stop
+        # Hilfsskript speichern
+        [System.IO.File]::WriteAllText(
+            $HelperPath,
+            $HelperScript,
+            [System.Text.Encoding]::UTF8
+        )
 
-            # Aktuelles Programm beenden
-            exit
+        $PowerShellExe = Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\powershell.exe"
+
+        # Hilfsprozess starten
+        $HelperProcess = Start-Process `
+            -FilePath $PowerShellExe `
+            -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$HelperPath`"" `
+            -WindowStyle Hidden `
+            -PassThru `
+            -ErrorAction Stop
+
+        # Prüfen, ob der Hilfsprozess gestartet wurde
+        if (-not $HelperProcess) {
+            throw "Der Update-Hilfsprozess konnte nicht gestartet werden."
+        }
+
+        # Alte EXE beenden
+        exit
         }
     }
 }
