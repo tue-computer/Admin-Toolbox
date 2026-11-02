@@ -1,0 +1,533 @@
+
+# ============================================================
+# ADMIN-TOOLBOX
+# PowerShell-Version
+# ============================================================
+
+$ErrorActionPreference = "Stop"
+
+$AdminUser = ""
+$AdminPassword = $null
+
+$MMC = Join-Path $env:WINDIR "System32\mmc.exe"
+$PowerShellExe = Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\powershell.exe"
+$System32 = Join-Path $env:WINDIR "System32"
+
+$Host.UI.RawUI.WindowTitle = "Admin Toolbox"
+
+# ============================================================
+# KONSOLENFENSTER DYNAMISCH AUF 80 % DER BILDSCHIRMF LÄCHE SETZEN
+# ============================================================
+
+Add-Type -AssemblyName System.Windows.Forms
+
+$Screen = [System.Windows.Forms.Screen]::PrimaryScreen
+$ScreenWidth  = $Screen.Bounds.Width
+$ScreenHeight = $Screen.Bounds.Height
+
+$WindowWidth  = [int]($ScreenWidth * 0.80)
+$WindowHeight = [int]($ScreenHeight * 0.80)
+
+if (-not ("ConsoleWindowSizer" -as [type])) {
+    Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+
+public class ConsoleWindowSizer {
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr GetConsoleWindow();
+
+    [DllImport("user32.dll", SetLastError=true)]
+    public static extern bool SetWindowPos(
+        IntPtr hWnd, IntPtr hWndInsertAfter,
+        int X, int Y, int cx, int cy, uint uFlags
+    );
+}
+'@
+}
+
+$Handle = [ConsoleWindowSizer]::GetConsoleWindow()
+
+if ($Handle -ne [IntPtr]::Zero) {
+    $X = [int](($ScreenWidth - $WindowWidth) / 2)
+    $Y = [int](($ScreenHeight - $WindowHeight) / 2)
+
+    [void][ConsoleWindowSizer]::SetWindowPos(
+        $Handle,
+        [IntPtr]::Zero,
+        $X, $Y,
+        $WindowWidth, $WindowHeight,
+        0x0004
+    )
+}
+
+# ============================================================
+# WINDOWS API: NETZWERK-ANMELDUNG MIT AD-KONTO
+# ============================================================
+
+if (-not ("NetOnlyLauncher" -as [type])) {
+
+Add-Type @'
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+
+public class NetOnlyLauncher {
+
+    [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]
+    public struct STARTUPINFO {
+        public int cb;
+        public string lpReserved;
+        public string lpDesktop;
+        public string lpTitle;
+        public int dwX, dwY, dwXSize, dwYSize;
+        public int dwXCountChars, dwYCountChars;
+        public int dwFillAttribute, dwFlags;
+        public short wShowWindow, cbReserved2;
+        public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PROCESS_INFORMATION {
+        public IntPtr hProcess, hThread;
+        public int dwProcessId, dwThreadId;
+    }
+
+    [DllImport("advapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    public static extern bool CreateProcessWithLogonW(
+        string user, string domain, string password, int logonFlags,
+        string applicationName, StringBuilder commandLine, int creationFlags,
+        IntPtr environment, string currentDirectory,
+        ref STARTUPINFO startupInfo, out PROCESS_INFORMATION processInfo);
+
+    [DllImport("kernel32.dll")]
+    public static extern bool CloseHandle(IntPtr handle);
+}
+'@
+}
+
+# ============================================================
+# FUNKTION: AD-PROGRAMME MIT NETZWERK-ANMELDUNG STARTEN
+# ============================================================
+
+function Start-ADProcess {
+    param(
+        [string]$Name,
+        [string]$File,
+        [string]$Arguments = ""
+    )
+
+    Write-Host ""
+    Write-Host "Starte $Name ..." -ForegroundColor Cyan
+
+    try {
+        if (-not (Test-Path $File)) {
+            throw "Datei wurde nicht gefunden: $File"
+        }
+
+        if ([string]::IsNullOrWhiteSpace($AdminUser)) {
+            if ([string]::IsNullOrWhiteSpace($Arguments)) {
+                Start-Process -FilePath $File -WorkingDirectory $System32
+            }
+            else {
+                Start-Process -FilePath $File -ArgumentList $Arguments -WorkingDirectory $System32
+            }
+            return
+        }
+
+        $Parts = $AdminUser.Split("\", 2)
+
+        if ($AdminUser -match '\\') {
+            $Parts = $AdminUser.Split('\', 2)
+            $Domain = $Parts[0]
+            $User = $Parts[1]
+        }
+        elseif ($AdminUser -match '@') {
+            $Domain = $null
+            $User = $AdminUser
+        }
+        else {
+            $Domain = "."
+            $User = $AdminUser
+        }
+
+        $SI = New-Object NetOnlyLauncher+STARTUPINFO
+        $SI.cb = [Runtime.InteropServices.Marshal]::SizeOf($SI)
+
+        $PI = New-Object NetOnlyLauncher+PROCESS_INFORMATION
+
+        $CommandLine = New-Object System.Text.StringBuilder
+        [void]$CommandLine.Append('"' + $File + '" ' + $Arguments)
+
+        # LOGON_NETCREDENTIALS_ONLY = 2
+        $Success = [NetOnlyLauncher]::CreateProcessWithLogonW(
+            $User,
+            $Domain,
+            $AdminPassword,
+            2,
+            $File,
+            $CommandLine,
+            0,
+            [IntPtr]::Zero,
+            $System32,
+            [ref]$SI,
+            [ref]$PI
+        )
+
+        if (-not $Success) {
+            $ErrorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+            throw "Windows-Fehler $ErrorCode beim Starten von $Name."
+        }
+
+        # Prozess l uft unabh ngig weiter.
+        # Handles schlie en, ohne auf das Programm zu warten.
+        [void][NetOnlyLauncher]::CloseHandle($PI.hThread)
+        [void][NetOnlyLauncher]::CloseHandle($PI.hProcess)
+    }
+    catch {
+        Write-Host ""
+        Write-Host "Fehler beim Starten von $Name" -ForegroundColor Red
+        Write-Host $_.Exception.Message -ForegroundColor Yellow
+        Read-Host "Weiter mit Enter"
+    }
+}
+
+# ============================================================
+# FUNKTION: MMC MIT OPTIONALEN AD-ZUGANGSDATEN STARTEN
+# ============================================================
+
+function Start-MmcTool {
+    param(
+        [string]$Name,
+        [string]$SnapIn,
+        [bool]$UseADCredentials = $false
+    )
+
+    $SnapInPath = Join-Path $System32 $SnapIn
+
+    if (-not (Test-Path $SnapInPath)) {
+        Write-Host ""
+        Write-Host "Snap-in nicht gefunden: $SnapInPath" -ForegroundColor Red
+        Read-Host "Weiter mit Enter"
+        return
+    }
+
+    if ($UseADCredentials) {
+        Start-ADProcess $Name $MMC "`"$SnapInPath`""
+    }
+    else {
+        Write-Host ""
+        Write-Host "Starte $Name ..." -ForegroundColor Cyan
+
+        try {
+            Start-Process -FilePath $MMC -ArgumentList "`"$SnapInPath`"" -WorkingDirectory $System32
+        }
+        catch {
+            Write-Host "Fehler: $($_.Exception.Message)" -ForegroundColor Red
+            Read-Host "Weiter mit Enter"
+        }
+    }
+}
+
+# ============================================================
+# FUNKTION: SERVER-TOOLS STARTEN
+# ============================================================
+
+function Start-Tool {
+    param(
+        [string]$Name,
+        [string]$File,
+        [string]$Arguments = ""
+    )
+
+    Write-Host ""
+    Write-Host "Starte $Name ..." -ForegroundColor Cyan
+
+    try {
+        if (-not (Test-Path $File)) {
+            throw "Programm wurde nicht gefunden: $File"
+        }
+
+        # ArgumentList nur  bergeben, wenn Argumente vorhanden sind.
+        if ([string]::IsNullOrWhiteSpace($Arguments)) {
+            Start-Process -FilePath $File -WorkingDirectory $System32
+        }
+        else {
+            Start-Process -FilePath $File -ArgumentList $Arguments -WorkingDirectory $System32
+        }
+    }
+    catch {
+        Write-Host ""
+        Write-Host "Fehler beim Starten von $Name" -ForegroundColor Red
+        Write-Host $_.Exception.Message -ForegroundColor Yellow
+        Read-Host "Weiter mit Enter"
+    }
+}
+
+# ============================================================
+# FUNKTION: WINDOWS LAPS KENNWORT ABFRAGEN
+# VERWENDET DEN AKTUELLEN WINDOWS-BENUTZER
+# ============================================================
+
+function Get-WindowsLapsPassword {
+
+    Clear-Host
+
+    Write-Host ""
+    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host "                 WINDOWS LAPS" -ForegroundColor Cyan
+    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Die Abfrage erfolgt mit dem aktuellen Windows-Benutzer."
+    Write-Host ""
+
+    try {
+        Import-Module LAPS -ErrorAction Stop
+
+        if (-not (Get-Command Get-LapsADPassword -ErrorAction SilentlyContinue)) {
+            throw "Get-LapsADPassword wurde nicht gefunden. Bitte das Windows-LAPS-Modul pr fen."
+        }
+
+        $ComputerName = Read-Host "Computername"
+
+        if ([string]::IsNullOrWhiteSpace($ComputerName)) {
+            Write-Host "Kein Computername angegeben." -ForegroundColor Yellow
+            Read-Host "Weiter mit Enter"
+            return
+        }
+
+        Write-Host ""
+        Write-Host "Rufe LAPS-Kennwort f r $ComputerName ab ..." -ForegroundColor Cyan
+        Write-Host ""
+
+        $LapsResult = Get-LapsADPassword -Identity $ComputerName -AsPlainText -ErrorAction Stop
+
+        if (-not $LapsResult) {
+            throw "Es wurden keine LAPS-Daten zur ckgegeben."
+        }
+
+        Write-Host "============================================================" -ForegroundColor Green
+        Write-Host "                 LAPS-ERGEBNIS" -ForegroundColor Green
+        Write-Host "============================================================" -ForegroundColor Green
+        Write-Host ""
+
+        $LapsResult | Format-List *
+
+        Write-Host ""
+        Write-Host "Hinweis: Das Kennwort wird im Klartext angezeigt." -ForegroundColor Yellow
+        Read-Host "Weiter mit Enter"
+    }
+    catch {
+        Write-Host ""
+        Write-Host "LAPS-Abfrage fehlgeschlagen!" -ForegroundColor Red
+        Write-Host $_.Exception.Message -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Pr fe Modulinstallation und Leseberechtigung f r LAPS." -ForegroundColor Yellow
+        Read-Host "Weiter mit Enter"
+    }
+}
+
+# ============================================================
+# STARTKONFIGURATION
+# ============================================================
+
+Clear-Host
+
+Write-Host ""
+Write-Host "============================================================" -ForegroundColor Cyan
+Write-Host "                    ADMIN TOOLBOX" -ForegroundColor Cyan
+Write-Host "============================================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "AD-Administratorkonto eingeben"
+Write-Host "Leer lassen = aktueller Windows-Benutzer"
+Write-Host ""
+
+# Dom ne abfragen
+$DomainInput = Read-Host "Dom ne"
+
+if ([string]::IsNullOrWhiteSpace($DomainInput)) {
+    $AdminUser = ""
+}
+else {
+    $DomainInput = $DomainInput.Trim()
+
+    # AD-Administrator abfragen
+    $AdminName = Read-Host "AD-Administrator"
+
+    if ([string]::IsNullOrWhiteSpace($AdminName)) {
+        Write-Host "Kein AD-Administrator angegeben!" -ForegroundColor Red
+        Read-Host "Weiter mit Enter"
+        exit
+    }
+
+    $AdminName = $AdminName.Trim()
+
+    # Dom ne und Benutzer zusammensetzen
+    $AdminUser = "$DomainInput\$AdminName"
+
+    # Kennwort abfragen
+    $SecurePassword = Read-Host "Kennwort" -AsSecureString
+
+    $BSTR = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePassword)
+    $AdminPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($BSTR)
+    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR)
+    $SecurePassword.Dispose()
+
+    Write-Host ""
+    Write-Host "AD-Verwaltung wird mit folgendem Konto gestartet:" -ForegroundColor Green
+    Write-Host "AD-Konto: $AdminUser" -ForegroundColor Green
+}
+
+if (-not $AdminUser) {
+    Write-Host "AD-Verwaltung verwendet das aktuelle Windows-Konto." -ForegroundColor Yellow
+}
+
+Start-Sleep -Seconds 2
+
+# ============================================================
+# HAUPTMENUE
+# ============================================================
+
+do {
+
+    Clear-Host
+
+    Write-Host ""
+    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host "                    ADMIN TOOLBOX" -ForegroundColor Cyan
+    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host ""
+
+    if ($AdminUser) {
+        Write-Host "AD-Konto:       $AdminUser"
+    }
+    else {
+        Write-Host "AD-Konto:       Aktueller Benutzer"
+    }
+
+    Write-Host "Server-Konto:   $([Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+    Write-Host ""
+    Write-Host "------------------------------------------------------------"
+    Write-Host "  ACTIVE DIRECTORY"
+    Write-Host "------------------------------------------------------------"
+    Write-Host ""
+    Write-Host "  [1]  AD Benutzer und Computer"
+    Write-Host "  [2]  AD PowerShell"
+    Write-Host "  [3]  DNS-Verwaltung"
+    Write-Host "  [4]  DHCP-Verwaltung"
+    Write-Host "  [5]  Gruppenrichtlinienverwaltung (GPO)"
+    Write-Host "  [6]  Windows LAPS Kennwortabfrage"
+    Write-Host ""
+    Write-Host "------------------------------------------------------------"
+    Write-Host "  SERVER UND INFRASTRUKTUR"
+    Write-Host "------------------------------------------------------------"
+    Write-Host ""
+    Write-Host "  [7]  DFS-Verwaltung"
+    Write-Host "  [8]  Computerverwaltung"
+    Write-Host "  [9]  Ereignisanzeige"
+    Write-Host "  [10] Hyper-V-Manager"
+    Write-Host "  [11] Server-Manager"
+    Write-Host "  [12] Druckverwaltung"
+    Write-Host ""
+    Write-Host "------------------------------------------------------------"
+    Write-Host ""
+    Write-Host "  [0]  Beenden"
+    Write-Host ""
+    Write-Host "============================================================"
+    Write-Host ""
+
+    $Auswahl = Read-Host "Bitte Auswahl treffen"
+
+    switch ($Auswahl) {
+
+        # ACTIVE DIRECTORY
+
+        "1" {
+            Start-MmcTool "AD Benutzer und Computer" "dsa.msc" $true
+        }
+
+        "2" {
+            Start-ADProcess "AD PowerShell" $PowerShellExe '-NoExit -Command "Import-Module ActiveDirectory"'
+        }
+
+        "3" {
+            Start-MmcTool "DNS-Verwaltung" "dnsmgmt.msc" $true
+        }
+
+        "4" {
+            $DhcpServer = Read-Host "DHCP-Server eingeben (z.B. SRV-DHCP01)"
+            if (-not [string]::IsNullOrWhiteSpace($DhcpServer)) {
+                $DhcpPath = Join-Path $System32 "dhcpmgmt.msc"
+                Start-ADProcess -Name "DHCP-Verwaltung" -File $MMC -Arguments "`"$DhcpPath`" /ComputerName $DhcpServer"
+            }
+        }
+
+        "5" {
+            $GpoPath = Join-Path $System32 "gpmc.msc"
+            Start-ADProcess -Name "Gruppenrichtlinienverwaltung" -File $MMC -Arguments "`"$GpoPath`""
+        }
+
+        "6" {
+            Get-WindowsLapsPassword
+        }
+
+        # SERVER UND INFRASTRUKTUR
+
+        "7" {
+            Start-MmcTool "DFS-Verwaltung" "dfsmgmt.msc"
+        }
+
+        "8" {
+            $TargetPC = Read-Host "Ziel-PC eingeben"
+
+            if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
+                $SnapInPath = Join-Path $System32 "compmgmt.msc"
+                $Arguments = "`"$SnapInPath`" /computer=$TargetPC"
+                Start-Tool "Computerverwaltung" $MMC $Arguments
+            }
+        }
+
+        "9" {
+            $TargetPC = Read-Host "Ziel-PC eingeben (z.B. PC-001)"
+            if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
+                $EventViewerExe = Join-Path $System32 "eventvwr.exe"
+                Start-Tool -Name "Ereignisanzeige" -File $EventViewerExe -Arguments $TargetPC
+            }
+        }
+
+        "10" {
+            Start-MmcTool "Hyper-V-Manager" "virtmgmt.msc"
+        }
+
+        "11" {
+            Start-Tool "Server-Manager" (Join-Path $System32 "ServerManager.exe")
+        }
+
+        "12" {
+            Start-MmcTool "Druckverwaltung" "printmanagement.msc"
+        }
+
+        "0" {
+            Write-Host ""
+            Write-Host "Admin Toolbox wird beendet." -ForegroundColor Cyan
+        }
+
+        default {0
+            Write-Host ""
+            Write-Host "Ung ltige Auswahl!" -ForegroundColor Red
+            Start-Sleep -Seconds 1
+        }
+    }
+
+} while ($Auswahl -ne "0")
+
+# ============================================================
+# AUFRAEUMEN
+# ============================================================
+
+$AdminPassword = $null
+$SecurePassword = $null
+
+Write-Host ""
+Write-Host "Programm beendet."
+Start-Sleep -Seconds 1
