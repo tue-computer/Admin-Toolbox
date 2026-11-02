@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-set "URL=https://raw.githubusercontent.com/tue-computer/Admin-Toolbox/main/Admin-Toolbox.exe"
+set "URL=https://raw.githubusercontent.com/tue-computer/Admin-Toolbox/main/source/Admin-Toolbox.exe"
 set "ZIEL=%USERPROFILE%\Desktop\Admin-Toolbox.exe"
 
 echo =================================
