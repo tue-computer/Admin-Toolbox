@@ -147,23 +147,43 @@ try {
 
     Start-Sleep -Seconds 2
 
-    # EXE ersetzen
-    if (Test-Path -LiteralPath $TargetExe) {
+        # EXE ersetzen – ohne File.Replace()
+    $BackupExe = "$TargetExe.bak"
 
-        $BackupExe = "$TargetExe.bak"
+    "Update-Datei: [$UpdateFile]" | Add-Content -LiteralPath $LogFile
+    "Ziel-Datei:   [$TargetExe]" | Add-Content -LiteralPath $LogFile
+    "Backup-Datei: [$BackupExe]" | Add-Content -LiteralPath $LogFile
+
+    if (-not (Test-Path -LiteralPath $UpdateFile -PathType Leaf)) {
+        throw "Update-Datei wurde nicht gefunden: $UpdateFile"
+    }
+
+    if (Test-Path -LiteralPath $TargetExe -PathType Leaf) {
 
         if (Test-Path -LiteralPath $BackupExe) {
             Remove-Item -LiteralPath $BackupExe -Force
         }
 
-        # Alte EXE ersetzen und als Backup sichern
-        [System.IO.File]::Replace(
-            $UpdateFile,
-            $TargetExe,
-            $BackupExe
-        )
+        # Alte EXE sichern
+        [System.IO.File]::Move($TargetExe, $BackupExe)
 
-        # Backup nach erfolgreichem Austausch entfernen
+        try {
+            # Neue EXE an den ursprünglichen Platz verschieben
+            [System.IO.File]::Move($UpdateFile, $TargetExe)
+        }
+        catch {
+            # Bei Fehler die alte EXE wiederherstellen
+            if (
+                (Test-Path -LiteralPath $BackupExe) -and
+                -not (Test-Path -LiteralPath $TargetExe)
+            ) {
+                [System.IO.File]::Move($BackupExe, $TargetExe)
+            }
+
+            throw
+        }
+
+        # Backup nach erfolgreichem Austausch löschen
         Remove-Item -LiteralPath $BackupExe -Force -ErrorAction SilentlyContinue
     }
     else {
