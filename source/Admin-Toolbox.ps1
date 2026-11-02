@@ -5,9 +5,13 @@
 
 $ErrorActionPreference = "Stop"
 
+
 # ============================================================
 # AUTOMATISCHES UPDATE DER ADMIN-TOOLBOX
 # ============================================================
+
+$UpdateFile = $null
+$HelperPath = $null
 
 try {
 
@@ -18,7 +22,6 @@ try {
 
         # GitHub-Einstellungen
         $ApiUrl = "https://api.github.com/repos/tue-computer/Admin-Toolbox/contents/source/Admin-Toolbox.exe?ref=main"
-        $DownloadUrl = "https://raw.githubusercontent.com/tue-computer/Admin-Toolbox/main/source/Admin-Toolbox.exe"
 
         # TLS 1.2 aktivieren
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -39,7 +42,7 @@ try {
             throw "Ungültige Dateiinformationen von GitHub erhalten."
         }
 
-        # Funktion zur Berechnung des GitHub-Datei-Hashes
+        # GitHub-Blob-Hash berechnen
         $GetGitHash = {
             param([string]$Path)
 
@@ -75,14 +78,14 @@ try {
             Write-Host "Neue Version gefunden!" -ForegroundColor Yellow
             Write-Host "Lade Update herunter..." -ForegroundColor Cyan
 
-            # Temporäre Datei im gleichen Verzeichnis
+            # Temporäre Update-Datei
             $UpdateFile = "$ExePath.update"
 
             if (Test-Path -LiteralPath $UpdateFile) {
                 Remove-Item -LiteralPath $UpdateFile -Force
             }
 
-            # Neue EXE herunterladen
+            # Update herunterladen
             $BlobUrl = "https://api.github.com/repos/tue-computer/Admin-Toolbox/git/blobs/$($GitHubInfo.sha)"
 
             Invoke-WebRequest `
@@ -99,21 +102,13 @@ try {
             $DownloadedHash = & $GetGitHash $UpdateFile
 
             if ($DownloadedHash -ne $GitHubInfo.sha.ToLowerInvariant()) {
-                Write-Host ""
-                Write-Host "Hash-Prüfung fehlgeschlagen!" -ForegroundColor Red
-                Write-Host "GitHub SHA:     $($GitHubInfo.sha)"
-                Write-Host "Download SHA:   $DownloadedHash"
-                Write-Host "GitHub Größe:   $($GitHubInfo.size) Bytes"
-                Write-Host "Download Größe: $((Get-Item $UpdateFile).Length) Bytes"
-                Write-Host "Download-URL:   $DownloadUrl"
-                Write-Host ""
-            }          
+                throw "Hash-Prüfung fehlgeschlagen. Das Update wird nicht installiert."
+            }
 
             Write-Host "Download erfolgreich überprüft." -ForegroundColor Green
             Write-Host "Installiere Update..." -ForegroundColor Cyan
 
             # Prozess-ID der aktuellen EXE
-            # Prozess-ID der aktuellen EXE ermitteln
             $ParentPid = [Diagnostics.Process]::GetCurrentProcess().Id
 
             # Pfade kodieren
@@ -125,7 +120,7 @@ try {
                 [Text.Encoding]::UTF8.GetBytes($ExePath)
             )
 
-            # Temporäres Hilfsskript erstellen
+            # Temporäres Hilfsskript
             $HelperPath = Join-Path $env:TEMP "AdminToolbox_Update_$ParentPid.ps1"
 
             $HelperScript = @'
@@ -133,10 +128,7 @@ $ParentPid = __PARENT_PID__
 $UpdateFile = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__UPDATE_FILE__'))
 $TargetExe = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__TARGET_EXE__'))
 
-$LogFile = Join-Path (Split-Path -Parent $TargetExe) "Admin-Toolbox-Update.log"
-
 try {
-    "Update-Hilfsprozess gestartet: $(Get-Date)" | Set-Content -LiteralPath $LogFile
 
     # Warten, bis die alte EXE beendet ist
     $ParentProcess = Get-Process -Id $ParentPid -ErrorAction SilentlyContinue
@@ -147,32 +139,28 @@ try {
 
     Start-Sleep -Seconds 2
 
-        # EXE ersetzen – ohne File.Replace()
     $BackupExe = "$TargetExe.bak"
 
-    "Update-Datei: [$UpdateFile]" | Add-Content -LiteralPath $LogFile
-    "Ziel-Datei:   [$TargetExe]" | Add-Content -LiteralPath $LogFile
-    "Backup-Datei: [$BackupExe]" | Add-Content -LiteralPath $LogFile
-
     if (-not (Test-Path -LiteralPath $UpdateFile -PathType Leaf)) {
-        throw "Update-Datei wurde nicht gefunden: $UpdateFile"
+        throw "Update-Datei wurde nicht gefunden."
     }
 
+    # Alte EXE sichern
     if (Test-Path -LiteralPath $TargetExe -PathType Leaf) {
 
         if (Test-Path -LiteralPath $BackupExe) {
             Remove-Item -LiteralPath $BackupExe -Force
         }
 
-        # Alte EXE sichern
         [System.IO.File]::Move($TargetExe, $BackupExe)
 
         try {
-            # Neue EXE an den ursprünglichen Platz verschieben
+            # Neue EXE installieren
             [System.IO.File]::Move($UpdateFile, $TargetExe)
         }
         catch {
-            # Bei Fehler die alte EXE wiederherstellen
+
+            # Alte EXE wiederherstellen
             if (
                 (Test-Path -LiteralPath $BackupExe) -and
                 -not (Test-Path -LiteralPath $TargetExe)
@@ -183,63 +171,78 @@ try {
             throw
         }
 
-        # Backup nach erfolgreichem Austausch löschen
+        # Backup entfernen
         Remove-Item -LiteralPath $BackupExe -Force -ErrorAction SilentlyContinue
     }
     else {
         [System.IO.File]::Move($UpdateFile, $TargetExe)
     }
 
-    "EXE erfolgreich ersetzt: $(Get-Date)" | Add-Content -LiteralPath $LogFile
-
     # Neue Version starten
     Start-Process -FilePath $TargetExe -ErrorAction Stop
 
-    "Neue EXE gestartet: $(Get-Date)" | Add-Content -LiteralPath $LogFile
 }
 catch {
-    $ErrorText = $_.Exception.ToString()
-    $ErrorText | Add-Content -LiteralPath $LogFile
+
+    $ErrorText = $_.Exception.Message
 
     Add-Type -AssemblyName System.Windows.Forms
 
     [System.Windows.Forms.MessageBox]::Show(
-        "Das Update konnte nicht installiert werden:`n`n$ErrorText`n`nLogdatei: $LogFile",
+        "Das Update konnte nicht installiert werden:`n`n$ErrorText",
         "Admin-Toolbox - Updatefehler",
         [System.Windows.Forms.MessageBoxButtons]::OK,
         [System.Windows.Forms.MessageBoxIcon]::Error
-    )
+    ) | Out-Null
+}
+finally {
+
+    # Übrig gebliebene Update-Datei entfernen
+    if (Test-Path -LiteralPath $UpdateFile) {
+        Remove-Item -LiteralPath $UpdateFile -Force -ErrorAction SilentlyContinue
+    }
+
+    # Übrig gebliebenes Backup entfernen
+    if (Test-Path -LiteralPath "$TargetExe.bak") {
+        Remove-Item -LiteralPath "$TargetExe.bak" -Force -ErrorAction SilentlyContinue
+    }
+
+    # Hilfsskript selbst löschen
+    $OwnScript = $MyInvocation.MyCommand.Path
+
+    if ($OwnScript -and (Test-Path -LiteralPath $OwnScript)) {
+        Remove-Item -LiteralPath $OwnScript -Force -ErrorAction SilentlyContinue
+    }
 }
 '@
 
-        $HelperScript = $HelperScript.Replace('__PARENT_PID__', [string]$ParentPid)
-        $HelperScript = $HelperScript.Replace('__UPDATE_FILE__', $UpdateFileEncoded)
-        $HelperScript = $HelperScript.Replace('__TARGET_EXE__', $ExePathEncoded)
+            $HelperScript = $HelperScript.Replace('__PARENT_PID__', [string]$ParentPid)
+            $HelperScript = $HelperScript.Replace('__UPDATE_FILE__', $UpdateFileEncoded)
+            $HelperScript = $HelperScript.Replace('__TARGET_EXE__', $ExePathEncoded)
 
-        # Hilfsskript speichern
-        [System.IO.File]::WriteAllText(
-            $HelperPath,
-            $HelperScript,
-            [System.Text.Encoding]::UTF8
-        )
+            # Hilfsskript speichern
+            [System.IO.File]::WriteAllText(
+                $HelperPath,
+                $HelperScript,
+                [System.Text.Encoding]::UTF8
+            )
 
-        $PowerShellExe = Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\powershell.exe"
+            $PowerShellExe = Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\powershell.exe"
 
-        # Hilfsprozess starten
-        $HelperProcess = Start-Process `
-            -FilePath $PowerShellExe `
-            -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$HelperPath`"" `
-            -WindowStyle Hidden `
-            -PassThru `
-            -ErrorAction Stop
+            # Hilfsprozess starten
+            $HelperProcess = Start-Process `
+                -FilePath $PowerShellExe `
+                -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$HelperPath`"" `
+                -WindowStyle Hidden `
+                -PassThru `
+                -ErrorAction Stop
 
-        # Prüfen, ob der Hilfsprozess gestartet wurde
-        if (-not $HelperProcess) {
-            throw "Der Update-Hilfsprozess konnte nicht gestartet werden."
-        }
+            if (-not $HelperProcess) {
+                throw "Der Update-Hilfsprozess konnte nicht gestartet werden."
+            }
 
-        # Alte EXE beenden
-        exit
+            # Alte EXE beenden
+            exit
         }
     }
 }
@@ -251,8 +254,13 @@ catch {
     Write-Host "Starte mit der vorhandenen Version." -ForegroundColor Yellow
     Write-Host ""
 
+    # Temporäre Dateien entfernen
     if ($UpdateFile -and (Test-Path -LiteralPath $UpdateFile)) {
         Remove-Item -LiteralPath $UpdateFile -Force -ErrorAction SilentlyContinue
+    }
+
+    if ($HelperPath -and (Test-Path -LiteralPath $HelperPath)) {
+        Remove-Item -LiteralPath $HelperPath -Force -ErrorAction SilentlyContinue
     }
 
     [Console]::WriteLine("")
