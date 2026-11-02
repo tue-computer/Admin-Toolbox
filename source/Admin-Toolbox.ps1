@@ -149,7 +149,22 @@ try {
 
     # EXE ersetzen
     if (Test-Path -LiteralPath $TargetExe) {
-        [System.IO.File]::Replace($UpdateFile, $TargetExe, $null)
+
+        $BackupExe = "$TargetExe.bak"
+
+        if (Test-Path -LiteralPath $BackupExe) {
+            Remove-Item -LiteralPath $BackupExe -Force
+        }
+
+        # Alte EXE ersetzen und als Backup sichern
+        [System.IO.File]::Replace(
+            $UpdateFile,
+            $TargetExe,
+            $BackupExe
+        )
+
+        # Backup nach erfolgreichem Austausch entfernen
+        Remove-Item -LiteralPath $BackupExe -Force -ErrorAction SilentlyContinue
     }
     else {
         [System.IO.File]::Move($UpdateFile, $TargetExe)
