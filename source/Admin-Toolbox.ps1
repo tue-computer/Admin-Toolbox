@@ -118,7 +118,7 @@ try {
                 Write-Host "Download SHA:   $DownloadedHash"
                 Write-Host "GitHub Größe:   $($GitHubInfo.size) Bytes"
                 Write-Host "Download Größe: $((Get-Item $UpdateFile).Length) Bytes"
-                Write-Host "Download-URL:   $DownloadUrl"
+                Write-Host "Download URL:   $DownloadUrl"
                 Write-Host ""
                 Read-Host "Enter drücken, um fortzufahren."
                 exit 1
