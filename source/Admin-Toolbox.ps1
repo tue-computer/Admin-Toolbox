@@ -729,7 +729,7 @@ Write-Host "Domäne:   $CurrentDomain" -ForegroundColor Yellow
 Write-Host ""
 
 # AD-Benutzer optional abfragen
-$AdminName = Read-Host "AD-Administrator (ohne Domäne, Enter = aktueller Benutzer)"
+$AdminName = Read-Host "AD-Administrator (ohne Domäne)"
 
 if ([string]::IsNullOrWhiteSpace($AdminName)) {
 
