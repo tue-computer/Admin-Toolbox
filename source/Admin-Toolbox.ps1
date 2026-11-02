@@ -1,19 +1,18 @@
 ﻿
 # ============================================================
 # ADMIN-TOOLBOX
-# PowerShell-Version
 # ============================================================
 
 $ErrorActionPreference = "Stop"
 
 chcp 65001 | Out-Null
-
-[Console]::InputEncoding  = [System.Text.Encoding]::UTF8
+[Console]::InputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
 $AdminUser = ""
-$AdminPassword = $null
+$SecureAdminPassword = $null
+$AdminCredential = $null
 
 $MMC = Join-Path $env:WINDIR "System32\mmc.exe"
 $PowerShellExe = Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\powershell.exe"
@@ -23,20 +22,18 @@ $Host.UI.RawUI.WindowTitle = "Admin Toolbox"
 
 
 # ============================================================
-# KONSOLENFENSTER DYNAMISCH AUF 80 % SETZEN
+# KONSOLENFENSTER AUF 80 % SETZEN
 # ============================================================
 
 Add-Type -AssemblyName System.Windows.Forms
 
 $Screen = [System.Windows.Forms.Screen]::PrimaryScreen
-$ScreenWidth  = $Screen.Bounds.Width
+$ScreenWidth = $Screen.Bounds.Width
 $ScreenHeight = $Screen.Bounds.Height
-
-$WindowWidth  = [int]($ScreenWidth * 0.80)
+$WindowWidth = [int]($ScreenWidth * 0.80)
 $WindowHeight = [int]($ScreenHeight * 0.80)
 
 if (-not ("ConsoleWindowSizer" -as [type])) {
-
     Add-Type @'
 using System;
 using System.Runtime.InteropServices;
@@ -46,10 +43,7 @@ public class ConsoleWindowSizer {
     public static extern IntPtr GetConsoleWindow();
 
     [DllImport("user32.dll", SetLastError=true)]
-    public static extern bool SetWindowPos(
-        IntPtr hWnd, IntPtr hWndInsertAfter,
-        int X, int Y, int cx, int cy, uint uFlags
-    );
+    public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
 }
 '@
 }
@@ -57,42 +51,29 @@ public class ConsoleWindowSizer {
 $Handle = [ConsoleWindowSizer]::GetConsoleWindow()
 
 if ($Handle -ne [IntPtr]::Zero) {
-
     $X = [int](($ScreenWidth - $WindowWidth) / 2)
     $Y = [int](($ScreenHeight - $WindowHeight) / 2)
-
-    [void][ConsoleWindowSizer]::SetWindowPos(
-        $Handle,
-        [IntPtr]::Zero,
-        $X, $Y,
-        $WindowWidth, $WindowHeight,
-        0x0004
-    )
+    [void][ConsoleWindowSizer]::SetWindowPos($Handle, [IntPtr]::Zero, $X, $Y, $WindowWidth, $WindowHeight, 0x0004)
 }
 
 
 # ============================================================
-# WINDOWS API: NETZWERK-ANMELDUNG MIT AD-KONTO
+# WINDOWS API - NETZWERK-ANMELDUNG
 # ============================================================
 
 if (-not ("NetOnlyLauncher" -as [type])) {
-
     Add-Type @'
 using System;
 using System.Text;
 using System.Runtime.InteropServices;
 
 public class NetOnlyLauncher {
-
     [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]
     public struct STARTUPINFO {
         public int cb;
-        public string lpReserved;
-        public string lpDesktop;
-        public string lpTitle;
+        public string lpReserved, lpDesktop, lpTitle;
         public int dwX, dwY, dwXSize, dwYSize;
-        public int dwXCountChars, dwYCountChars;
-        public int dwFillAttribute, dwFlags;
+        public int dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags;
         public short wShowWindow, cbReserved2;
         public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError;
     }
@@ -105,10 +86,18 @@ public class NetOnlyLauncher {
 
     [DllImport("advapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
     public static extern bool CreateProcessWithLogonW(
-        string user, string domain, string password, int logonFlags,
-        string applicationName, StringBuilder commandLine, int creationFlags,
-        IntPtr environment, string currentDirectory,
-        ref STARTUPINFO startupInfo, out PROCESS_INFORMATION processInfo);
+        string user,
+        string domain,
+        IntPtr password,
+        int logonFlags,
+        string applicationName,
+        StringBuilder commandLine,
+        int creationFlags,
+        IntPtr environment,
+        string currentDirectory,
+        ref STARTUPINFO startupInfo,
+        out PROCESS_INFORMATION processInfo
+    );
 
     [DllImport("kernel32.dll")]
     public static extern bool CloseHandle(IntPtr handle);
@@ -118,36 +107,61 @@ public class NetOnlyLauncher {
 
 
 # ============================================================
-# FUNKTION: AD-PROGRAMME MIT NETZWERK-ANMELDUNG STARTEN
+# ZENTRALE HILFSFUNKTIONEN
 # ============================================================
 
-function Start-ADProcess {
+function Show-ToolError {
+    param([string]$Name, [string]$Message)
 
+    Write-Host ""
+    Write-Host "Fehler bei $Name!" -ForegroundColor Red
+    Write-Host $Message -ForegroundColor Yellow
+    Read-Host "Weiter mit Enter"
+}
+
+
+# ============================================================
+# PROGRAMME STARTEN
+# ============================================================
+
+function Start-AdminProcess {
     param(
         [string]$Name,
         [string]$File,
-        [string]$Arguments = ""
+        [string]$Arguments = "",
+        [string]$WorkingDirectory = $System32,
+        [bool]$UseADCredentials = $false
     )
 
     Write-Host ""
     Write-Host "Starte $Name ..." -ForegroundColor Cyan
 
-    try {
+    $BSTR = [IntPtr]::Zero
+    $PI = New-Object NetOnlyLauncher+PROCESS_INFORMATION
+    $ProcessStarted = $false
 
+    try {
         if (-not (Test-Path $File)) {
-            throw "Datei wurde nicht gefunden: $File"
+            throw "Programm wurde nicht gefunden: $File"
         }
 
-        if ([string]::IsNullOrWhiteSpace($AdminUser)) {
-
-            if ([string]::IsNullOrWhiteSpace($Arguments)) {
-                Start-Process -FilePath $File -WorkingDirectory $System32
-            }
-            else {
-                Start-Process -FilePath $File -ArgumentList $Arguments -WorkingDirectory $System32
+        if (-not $UseADCredentials -or [string]::IsNullOrWhiteSpace($AdminUser)) {
+            $StartParams = @{
+                FilePath = $File
+                WorkingDirectory = $WorkingDirectory
+                ErrorAction = "Stop"
             }
 
+            if (-not [string]::IsNullOrWhiteSpace($Arguments)) {
+                $StartParams.ArgumentList = $Arguments
+            }
+
+            Start-Process @StartParams
             return
+        }
+
+        if (-not $SecureAdminPassword) {
+            throw "Kein AD-Kennwort in der Sitzung vorhanden."
         }
 
         if ($AdminUser -match '\\') {
@@ -167,24 +181,17 @@ function Start-ADProcess {
         $SI = New-Object NetOnlyLauncher+STARTUPINFO
         $SI.cb = [Runtime.InteropServices.Marshal]::SizeOf($SI)
 
-        $PI = New-Object NetOnlyLauncher+PROCESS_INFORMATION
-
         $CommandLine = New-Object System.Text.StringBuilder
         [void]$CommandLine.Append('"' + $File + '" ' + $Arguments)
 
+        # SecureString nur für den API-Aufruf in BSTR umwandeln
+        $BSTR = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureAdminPassword)
+
         # LOGON_NETCREDENTIALS_ONLY = 2
         $Success = [NetOnlyLauncher]::CreateProcessWithLogonW(
-            $User,
-            $Domain,
-            $AdminPassword,
-            2,
-            $File,
-            $CommandLine,
-            0,
-            [IntPtr]::Zero,
-            $System32,
-            [ref]$SI,
-            [ref]$PI
+            $User, $Domain, $BSTR, 2, $File,
+            $CommandLine, 0, [IntPtr]::Zero, $WorkingDirectory,
+            [ref]$SI, [ref]$PI
         )
 
         if (-not $Success) {
@@ -192,24 +199,30 @@ function Start-ADProcess {
             throw "Windows-Fehler $ErrorCode beim Starten von $Name."
         }
 
-        [void][NetOnlyLauncher]::CloseHandle($PI.hThread)
-        [void][NetOnlyLauncher]::CloseHandle($PI.hProcess)
+        $ProcessStarted = $true
     }
     catch {
-        Write-Host ""
-        Write-Host "Fehler beim Starten von $Name" -ForegroundColor Red
-        Write-Host $_.Exception.Message -ForegroundColor Yellow
-        Read-Host "Weiter mit Enter"
+        Show-ToolError -Name $Name -Message $_.Exception.Message
+    }
+    finally {
+        # Klartext-BSTR sofort überschreiben und freigeben
+        if ($BSTR -ne [IntPtr]::Zero) {
+            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR)
+        }
+
+        if ($ProcessStarted) {
+            [void][NetOnlyLauncher]::CloseHandle($PI.hThread)
+            [void][NetOnlyLauncher]::CloseHandle($PI.hProcess)
+        }
     }
 }
 
 
 # ============================================================
-# FUNKTION: MMC MIT OPTIONALEN AD-ZUGANGSDATEN STARTEN
+# MMC-VERWALTUNG
 # ============================================================
 
 function Start-MmcTool {
-
     param(
         [string]$Name,
         [string]$SnapIn,
@@ -219,74 +232,19 @@ function Start-MmcTool {
     $SnapInPath = Join-Path $System32 $SnapIn
 
     if (-not (Test-Path $SnapInPath)) {
-        Write-Host ""
-        Write-Host "Snap-in nicht gefunden: $SnapInPath" -ForegroundColor Red
-        Read-Host "Weiter mit Enter"
+        Show-ToolError -Name $Name -Message "Snap-in nicht gefunden: $SnapInPath"
         return
     }
 
-    if ($UseADCredentials) {
-        Start-ADProcess $Name $MMC "`"$SnapInPath`""
-    }
-    else {
-        Write-Host ""
-        Write-Host "Starte $Name ..." -ForegroundColor Cyan
-
-        try {
-            Start-Process -FilePath $MMC -ArgumentList "`"$SnapInPath`"" -WorkingDirectory $System32
-        }
-        catch {
-            Write-Host "Fehler: $($_.Exception.Message)" -ForegroundColor Red
-            Read-Host "Weiter mit Enter"
-        }
-    }
+    Start-AdminProcess -Name $Name -File $MMC -Arguments "`"$SnapInPath`"" -UseADCredentials $UseADCredentials
 }
 
 
 # ============================================================
-# FUNKTION: SERVER-TOOLS STARTEN
-# ============================================================
-
-function Start-Tool {
-
-    param(
-        [string]$Name,
-        [string]$File,
-        [string]$Arguments = ""
-    )
-
-    Write-Host ""
-    Write-Host "Starte $Name ..." -ForegroundColor Cyan
-
-    try {
-
-        if (-not (Test-Path $File)) {
-            throw "Programm wurde nicht gefunden: $File"
-        }
-
-        if ([string]::IsNullOrWhiteSpace($Arguments)) {
-            Start-Process -FilePath $File -WorkingDirectory $System32
-        }
-        else {
-            Start-Process -FilePath $File -ArgumentList $Arguments -WorkingDirectory $System32
-        }
-    }
-    catch {
-        Write-Host ""
-        Write-Host "Fehler beim Starten von $Name" -ForegroundColor Red
-        Write-Host $_.Exception.Message -ForegroundColor Yellow
-        Read-Host "Weiter mit Enter"
-    }
-}
-
-
-# ============================================================
-# FUNKTION: WINDOWS LAPS KENNWORT ABFRAGEN
-# VERWENDET DEN AKTUELLEN WINDOWS-BENUTZER
+# WINDOWS LAPS
 # ============================================================
 
 function Get-WindowsLapsPassword {
-
     Clear-Host
 
     Write-Host ""
@@ -296,7 +254,6 @@ function Get-WindowsLapsPassword {
     Write-Host ""
 
     try {
-
         $CurrentUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 
         Write-Host "LAPS-Abfrage mit Windows-Benutzer:" -ForegroundColor Green
@@ -306,24 +263,17 @@ function Get-WindowsLapsPassword {
         Import-Module LAPS -ErrorAction Stop
         Get-Command Get-LapsADPassword -ErrorAction Stop | Out-Null
 
-        $ComputerName = Read-Host "PC-Name"
+        $ComputerName = (Read-Host "PC-Name").Trim()
 
         if ([string]::IsNullOrWhiteSpace($ComputerName)) {
             throw "Kein PC-Name angegeben."
         }
 
-        $ComputerName = $ComputerName.Trim()
-
         Write-Host ""
         Write-Host "Rufe LAPS-Kennwort für $ComputerName ab ..." -ForegroundColor Cyan
 
         $Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-
-        $LapsResult = Get-LapsADPassword `
-            -Identity $ComputerName `
-            -AsPlainText `
-            -ErrorAction Stop
-
+        $LapsResult = Get-LapsADPassword -Identity $ComputerName -AsPlainText -ErrorAction Stop
         $Stopwatch.Stop()
 
         if (-not $LapsResult) {
@@ -342,10 +292,8 @@ function Get-WindowsLapsPassword {
         Write-Host "Abfragedauer: $([math]::Round($Stopwatch.Elapsed.TotalSeconds,2)) Sekunden" -ForegroundColor Gray
     }
     catch {
-
         Write-Host ""
         Write-Host "LAPS-Abfrage fehlgeschlagen!" -ForegroundColor Red
-        Write-Host ""
         Write-Host $_.Exception.Message -ForegroundColor Yellow
         Write-Host ""
         Write-Host "Bitte Windows-Benutzerrechte, AD-Verbindung und LAPS-Modul prüfen." -ForegroundColor Yellow
@@ -357,15 +305,13 @@ function Get-WindowsLapsPassword {
 
 
 # ============================================================
-# FUNKTION: ZENTRALES GPUPDATE AUF REMOTE-PC
-# BENUTZERWAHL:
-# 1 = AKTUELLER SERVER-BENUTZER
+# REMOTE-GPUPDATE
+# 1 = AKTUELLER BENUTZER
 # 2 = HINTERLEGTER AD-BENUTZER
 # 3 = ANDERER BENUTZER
 # ============================================================
 
 function Invoke-RemoteGPUpdate {
-
     Clear-Host
 
     Write-Host ""
@@ -375,11 +321,8 @@ function Invoke-RemoteGPUpdate {
     Write-Host ""
 
     $Credential = $null
-    $SecurePassword = $null
 
     try {
-
-        # Zielcomputer
         $TargetPC = (Read-Host "Ziel-PC").Trim()
 
         if ([string]::IsNullOrWhiteSpace($TargetPC)) {
@@ -387,7 +330,6 @@ function Invoke-RemoteGPUpdate {
             return
         }
 
-        # Benutzerwahl
         Write-Host ""
         Write-Host "BENUTZER FÜR REMOTE-GPUPDATE" -ForegroundColor Cyan
         Write-Host "------------------------------------------------------------"
@@ -400,9 +342,8 @@ function Invoke-RemoteGPUpdate {
 
         $InvokeParams = @{
             ComputerName = $TargetPC
-            ErrorAction  = "Stop"
-            ScriptBlock  = {
-
+            ErrorAction = "Stop"
+            ScriptBlock = {
                 $GpUpdateExe = Join-Path $env:WINDIR "System32\gpupdate.exe"
 
                 Write-Output "Starte GPUpdate auf $env:COMPUTERNAME ..."
@@ -423,31 +364,24 @@ function Invoke-RemoteGPUpdate {
         }
 
         switch ($UserChoice) {
-
             "1" {
-                # Kein -Credential:
-                # Invoke-Command verwendet den aktuellen Prozessbenutzer.
-
                 $SelectedUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+
                 Write-Host ""
-                Write-Host "Verbindung als Server-Benutzer: $SelectedUser" -ForegroundColor Yellow
+                Write-Host "Verwendeter Benutzer: $SelectedUser" -ForegroundColor Yellow
             }
 
             "2" {
-                if ([string]::IsNullOrWhiteSpace($AdminUser) -or
-                    [string]::IsNullOrWhiteSpace($AdminPassword)) {
-
+                if ([string]::IsNullOrWhiteSpace($AdminUser) -or -not $AdminCredential) {
                     throw "Es wurde bei der Startkonfiguration kein AD-Konto mit Kennwort hinterlegt."
                 }
 
-                $SecurePassword = ConvertTo-SecureString $AdminPassword -AsPlainText -Force
-                $Credential = [PSCredential]::new($AdminUser, $SecurePassword)
-
+                $Credential = $AdminCredential
                 $SelectedUser = $AdminUser
                 $InvokeParams.Credential = $Credential
 
                 Write-Host ""
-                Write-Host "Verbindung als AD-Benutzer: $SelectedUser" -ForegroundColor Yellow
+                Write-Host "Verwendeter Benutzer: $SelectedUser" -ForegroundColor Yellow
             }
 
             "3" {
@@ -457,7 +391,7 @@ function Invoke-RemoteGPUpdate {
                     throw "Kein Benutzer angegeben."
                 }
 
-                $Credential = Get-Credential -UserName $CustomUser -Message "Kennwort für GPUpdate eingeben"
+                $Credential = Get-Credential -UserName $CustomUser -Message "Kennwort für Benutzer angeben"
 
                 if (-not $Credential) {
                     throw "Keine Zugangsdaten angegeben."
@@ -467,7 +401,7 @@ function Invoke-RemoteGPUpdate {
                 $InvokeParams.Credential = $Credential
 
                 Write-Host ""
-                Write-Host "Verbindung als eigener Benutzer: $SelectedUser" -ForegroundColor Yellow
+                Write-Host "Verwendeter Benutzer: $SelectedUser" -ForegroundColor Yellow
             }
 
             default {
@@ -476,25 +410,7 @@ function Invoke-RemoteGPUpdate {
             }
         }
 
-        Write-Host ""
-        Write-Host "============================================================" -ForegroundColor Cyan
-        Write-Host "Zielcomputer: $TargetPC" -ForegroundColor Yellow
-        Write-Host "Benutzer:     $SelectedUser" -ForegroundColor Yellow
-        Write-Host "============================================================" -ForegroundColor Cyan
-
-        Write-Host ""
-        $Confirm = Read-Host "GPUpdate jetzt ausführen? (J/N)"
-
-        if ($Confirm -notmatch '^(J|JA)$') {
-            Write-Host "Vorgang abgebrochen." -ForegroundColor Yellow
-            return
-        }
-
-        Write-Host ""
-        Write-Host "Verbinde mit $TargetPC ..." -ForegroundColor Cyan
-
-        # Direkter Aufruf von gpupdate.exe auf dem Ziel-PC.
-        # Kein GroupPolicy-Modul und kein zusätzlicher Invoke-GPUpdate-Aufruf.
+        Write-Host "Starte gpupdate auf $TargetPC ..." -ForegroundColor Green
 
         $RemoteResult = Invoke-Command @InvokeParams
 
@@ -503,26 +419,21 @@ function Invoke-RemoteGPUpdate {
             Write-Host $Line
         }
 
-        Write-Host ""
-        Write-Host "============================================================" -ForegroundColor Green
-        Write-Host "             GPUPDATE ERFOLGREICH AUSGEFÜHRT" -ForegroundColor Green
-        Write-Host "============================================================" -ForegroundColor Green
-        Write-Host ""
-        Write-Host "Zielcomputer: $TargetPC" -ForegroundColor Yellow
-        Write-Host "Benutzer:     $SelectedUser" -ForegroundColor Yellow
+        Write-Host "gpupdate erfolgreich" -ForegroundColor Green
     }
     catch {
-
         Write-Host ""
-        Write-Host "GPUPDATE FEHLGESCHLAGEN!" -ForegroundColor Red
-        Write-Host ""
+        Write-Host "gpupdate fehlgeschlagen!" -ForegroundColor Red
         Write-Host $_.Exception.Message -ForegroundColor Yellow
         Write-Host ""
         Write-Host "Bitte WinRM, Firewall und Berechtigungen prüfen." -ForegroundColor Yellow
     }
     finally {
-        $Credential = $null
-        $SecurePassword = $null
+        # Nur lokale Referenz freigeben.
+        # Das globale AD-Credential bleibt für die Sitzung erhalten.
+        if ($Credential -ne $AdminCredential) {
+            $Credential = $null
+        }
     }
 
     Write-Host ""
@@ -547,14 +458,8 @@ Write-Host ""
 
 $DomainInput = Read-Host "Domäne"
 
-if ([string]::IsNullOrWhiteSpace($DomainInput)) {
-
-    $AdminUser = ""
-}
-else {
-
+if (-not [string]::IsNullOrWhiteSpace($DomainInput)) {
     $DomainInput = $DomainInput.Trim()
-
     $AdminName = Read-Host "AD-Administrator"
 
     if ([string]::IsNullOrWhiteSpace($AdminName)) {
@@ -563,27 +468,19 @@ else {
         exit
     }
 
-    $AdminName = $AdminName.Trim()
-    $AdminUser = "$DomainInput\$AdminName"
+    $AdminUser = "$DomainInput\$($AdminName.Trim())"
 
-    $SecurePassword = Read-Host "Kennwort" -AsSecureString
+    # Kennwort ausschließlich als SecureString einlesen
+    $SecureAdminPassword = Read-Host "Kennwort" -AsSecureString
 
-    $BSTR = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePassword)
-
-    try {
-        $AdminPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($BSTR)
-    }
-    finally {
-        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR)
-        $SecurePassword.Dispose()
-    }
+    # PSCredential verwendet denselben SecureString
+    $AdminCredential = [PSCredential]::new($AdminUser, $SecureAdminPassword)
 
     Write-Host ""
     Write-Host "AD-Verwaltung wird mit folgendem Konto gestartet:" -ForegroundColor Green
     Write-Host "AD-Konto: $AdminUser" -ForegroundColor Green
 }
-
-if (-not $AdminUser) {
+else {
     Write-Host "AD-Verwaltung verwendet das aktuelle Windows-Konto." -ForegroundColor Yellow
 }
 
@@ -591,11 +488,10 @@ Start-Sleep -Seconds 2
 
 
 # ============================================================
-# HAUPTMENUE
+# HAUPTMENÜ
 # ============================================================
 
 do {
-
     Clear-Host
 
     Write-Host ""
@@ -635,130 +531,116 @@ do {
     Write-Host " SICHERHEIT" -ForegroundColor Cyan
     Write-Host " [80] LAPS-Kennwort auslesen"
     Write-Host ""
+
     Write-Host " [0] Beenden" -ForegroundColor Yellow
     Write-Host ""
 
     $Auswahl = Read-Host "Bitte Auswahl treffen"
 
     switch ($Auswahl) {
-
-        # ACTIVE DIRECTORY
-
         "10" {
-            Start-MmcTool "Benutzer und Computer" "dsa.msc" $true
+            Start-MmcTool -Name "Benutzer und Computer" -SnapIn "dsa.msc" -UseADCredentials $true
         }
 
         "11" {
-            Start-ADProcess "PowerShell" $PowerShellExe '-NoExit -Command "Import-Module ActiveDirectory"'
+            Start-AdminProcess -Name "PowerShell" -File $PowerShellExe -Arguments '-NoExit -Command "Import-Module ActiveDirectory"' -UseADCredentials $true
         }
 
-
-        # DNS & DHCP
-
         "30" {
-
-            $DnsServer = Read-Host "DNS-Server eingeben"
+            $DnsServer = (Read-Host "DNS-Server eingeben").Trim()
 
             if (-not [string]::IsNullOrWhiteSpace($DnsServer)) {
-
-                $DnsServer = $DnsServer.Trim()
                 $DnsPath = Join-Path $System32 "dnsmgmt.msc"
-
-                Start-ADProcess `
-                    -Name "DNS-Verwaltung" `
-                    -File $MMC `
-                    -Arguments "`"$DnsPath`" /computername $DnsServer"
+                Start-AdminProcess -Name "DNS-Verwaltung" -File $MMC -Arguments "`"$DnsPath`" /computername $DnsServer" -UseADCredentials $true
             }
         }
 
         "31" {
-
-            $DhcpServer = Read-Host "DHCP-Server eingeben"
+            $DhcpServer = (Read-Host "DHCP-Server eingeben").Trim()
 
             if (-not [string]::IsNullOrWhiteSpace($DhcpServer)) {
-
                 $DhcpPath = Join-Path $System32 "dhcpmgmt.msc"
-
-                Start-ADProcess `
-                    -Name "DHCP-Verwaltung" `
-                    -File $MMC `
-                    -Arguments "`"$DhcpPath`" /ComputerName $DhcpServer"
+                Start-AdminProcess -Name "DHCP-Verwaltung" -File $MMC -Arguments "`"$DhcpPath`" /ComputerName $DhcpServer" -UseADCredentials $true
             }
         }
 
-
-        # GRUPPENRICHTLINIEN
-
         "40" {
-
             $GpoPath = Join-Path $System32 "gpmc.msc"
-
-            Start-ADProcess `
-                -Name "Gruppenrichtlinienverwaltung" `
-                -File $MMC `
-                -Arguments "`"$GpoPath`""
+            Start-AdminProcess -Name "Gruppenrichtlinienverwaltung" -File $MMC -Arguments "`"$GpoPath`"" -UseADCredentials $true
         }
 
         "41" {
             Invoke-RemoteGPUpdate
         }
 
-
-        # SERVER
-
         "50" {
-
-            $TargetPC = Read-Host "Ziel-PC eingeben"
+            $TargetPC = (Read-Host "Ziel-PC eingeben").Trim()
 
             if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
-
                 $SnapInPath = Join-Path $System32 "compmgmt.msc"
-                $Arguments = "`"$SnapInPath`" /computer=$TargetPC"
-
-                Start-Tool "Computerverwaltung" $MMC $Arguments
+                Start-AdminProcess -Name "Computerverwaltung" -File $MMC -Arguments "`"$SnapInPath`" /computer=$TargetPC"
             }
         }
 
         "51" {
-
-            $TargetPC = Read-Host "Ziel-PC"
+            $TargetPC = (Read-Host "Ziel-PC").Trim()
 
             if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
-
                 $EventViewerExe = Join-Path $System32 "eventvwr.exe"
-
-                Start-Tool `
-                    -Name "Ereignisanzeige" `
-                    -File $EventViewerExe `
-                    -Arguments $TargetPC
+                Start-AdminProcess -Name "Ereignisanzeige" -File $EventViewerExe -Arguments $TargetPC
             }
         }
 
         "52" {
-            Start-Tool "Server-Manager" (Join-Path $System32 "ServerManager.exe")
-        }
+            Write-Host ""
+            Write-Host "SERVER-MANAGER STARTEN" -ForegroundColor Cyan
+            Write-Host "------------------------------------------------------------"
+            Write-Host "[1] Mit AD-Benutzer starten"
+            Write-Host "[2] Mit aktuellem Server-Benutzer starten"
+            Write-Host "------------------------------------------------------------"
+
+            $ServerManagerChoice = Read-Host "Auswahl"
+
+            switch ($ServerManagerChoice) {
+                "1" {
+                    if (-not $AdminCredential) {
+                        Write-Host "Kein AD-Konto hinterlegt!" -ForegroundColor Red
+                        Read-Host "Weiter mit Enter"
+                        break
+                    }
+
+                    Start-AdminProcess -Name "Server-Manager (AD)" `
+                        -File (Join-Path $System32 "ServerManager.exe") `
+                        -UseADCredentials $true
+                }
+
+                "2" {
+                    Start-AdminProcess -Name "Server-Manager (Server-Benutzer)" `
+                        -File (Join-Path $System32 "ServerManager.exe")
+                }
+
+                default {
+                    Write-Host "Ungültige Auswahl!" -ForegroundColor Red
+                    Start-Sleep -Seconds 1
+                }
+            }
+        }   
 
         "53" {
-            Start-MmcTool "Druckverwaltung" "printmanagement.msc"
+            Start-MmcTool -Name "Druckverwaltung" -SnapIn "printmanagement.msc"
         }
 
         "54" {
-            Start-MmcTool "Hyper-V-Manager" "virtmgmt.msc"
+            Start-MmcTool -Name "Hyper-V-Manager" -SnapIn "virtmgmt.msc"
         }
 
         "55" {
-            Start-MmcTool "DFS-Verwaltung" "dfsmgmt.msc"
+            Start-MmcTool -Name "DFS-Verwaltung" -SnapIn "dfsmgmt.msc"
         }
-
-
-        # SICHERHEIT
 
         "80" {
             Get-WindowsLapsPassword
         }
-
-
-        # BEENDEN
 
         "0" {
             Write-Host ""
@@ -779,8 +661,12 @@ do {
 # AUFRÄUMEN
 # ============================================================
 
-$AdminPassword = $null
-$SecurePassword = $null
+$AdminCredential = $null
+
+if ($SecureAdminPassword) {
+    $SecureAdminPassword.Dispose()
+    $SecureAdminPassword = $null
+}
 
 Write-Host ""
 Write-Host "Programm beendet."
