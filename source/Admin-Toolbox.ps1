@@ -41,39 +41,23 @@ try {
 
         # Funktion zur Berechnung des GitHub-Datei-Hashes
         $GetGitHash = {
-
             param([string]$Path)
 
-            $Info = Get-Item -LiteralPath $Path
-            $Header = [Text.Encoding]::UTF8.GetBytes("blob $($Info.Length)`0")
+            $FileBytes = [System.IO.File]::ReadAllBytes($Path)
+            $Header = [System.Text.Encoding]::UTF8.GetBytes("blob $($FileBytes.Length)`0")
 
-            $SHA = [Security.Cryptography.SHA1]::Create()
-            $File = [IO.File]::OpenRead($Path)
+            $GitBlob = New-Object byte[] ($Header.Length + $FileBytes.Length)
+
+            [Array]::Copy($Header, 0, $GitBlob, 0, $Header.Length)
+            [Array]::Copy($FileBytes, 0, $GitBlob, $Header.Length, $FileBytes.Length)
+
+            $SHA = [System.Security.Cryptography.SHA1]::Create()
 
             try {
-
-                $null = $SHA.TransformBlock(
-                    $Header, 0, $Header.Length, $Header, 0
-                )
-
-                $Buffer = New-Object byte[] 8192
-
-                while (($Count = $File.Read($Buffer, 0, $Buffer.Length)) -gt 0) {
-                    $null = $SHA.TransformBlock(
-                        $Buffer, 0, $Count, $Buffer, 0
-                    )
-                }
-
-                $Empty = New-Object byte[] 0
-                $null = $SHA.TransformFinalBlock($Empty, 0, 0)
-
-                return [BitConverter]::ToString(
-                    $SHA.Hash
-                ).Replace("-", "").ToLowerInvariant()
-
+                $HashBytes = $SHA.ComputeHash($GitBlob)
+                return ([BitConverter]::ToString($HashBytes)).Replace("-", "").ToLowerInvariant()
             }
             finally {
-                $File.Dispose()
                 $SHA.Dispose()
             }
         }
@@ -99,12 +83,15 @@ try {
             }
 
             # Neue EXE herunterladen
+            $BlobUrl = "https://api.github.com/repos/tue-computer/Admin-Toolbox/git/blobs/$($GitHubInfo.sha)"
+
             Invoke-WebRequest `
-                -Uri $DownloadUrl `
+                -Uri $BlobUrl `
                 -OutFile $UpdateFile `
                 -UseBasicParsing `
                 -Headers @{
                     "User-Agent" = "Admin-Toolbox Updater"
+                    "Accept" = "application/vnd.github.raw"
                 } `
                 -ErrorAction Stop
 
@@ -120,8 +107,6 @@ try {
                 Write-Host "Download Größe: $((Get-Item $UpdateFile).Length) Bytes"
                 Write-Host "Download URL:   $DownloadUrl"
                 Write-Host ""
-                Read-Host "Enter drücken, um fortzufahren."
-                exit 1
             }          
 
             Write-Host "Download erfolgreich überprüft." -ForegroundColor Green
