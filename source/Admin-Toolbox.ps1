@@ -104,7 +104,7 @@ try {
                 -OutFile $UpdateFile `
                 -UseBasicParsing `
                 -Headers @{
-                    "User-Agent" = "Admin-Toolbox-Updater"
+                    "User-Agent" = "Admin-Toolbox Updater"
                 } `
                 -ErrorAction Stop
 
