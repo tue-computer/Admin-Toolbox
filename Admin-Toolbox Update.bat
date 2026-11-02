@@ -23,5 +23,4 @@ echo.
 echo Update erfolgreich!
 echo Speicherort: %ZIEL%
 
-pause
-```
+timeout /t 2 >nul
