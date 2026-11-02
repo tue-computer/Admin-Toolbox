@@ -1,6 +1,6 @@
 Invoke-PS2EXE `
     -InputFile ".\source\Admin-Toolbox.ps1" `
-    -OutputFile ".\source\Admin-Toolbox.exe" `
+    -OutputFile "Admin-Toolbox.exe" `
     -IconFile ".\source\Admin-Toolbox.ico" `
     -Title "Admin Toolbox" `
     -Description "Active Directory- und Serververwaltung" `

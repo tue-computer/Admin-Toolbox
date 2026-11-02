@@ -21,7 +21,7 @@ try {
     if ([System.IO.Path]::GetFileName($ExePath) -ieq "Admin-Toolbox.exe") {
 
         # GitHub-Einstellungen
-        $ApiUrl = "https://api.github.com/repos/tue-computer/Admin-Toolbox/contents/source/Admin-Toolbox.exe?ref=main"
+        $ApiUrl = "https://api.github.com/repos/tue-computer/Admin-Toolbox/contents/Admin-Toolbox.exe?ref=main"
 
         # TLS 1.2 aktivieren
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
