@@ -273,7 +273,6 @@ function Start-Tool {
 # VERWENDET DEN AKTUELLEN WINDOWS-BENUTZER
 # ============================================================
 
-
 function Get-WindowsLapsPassword {
 
     Clear-Host
@@ -298,10 +297,10 @@ function Get-WindowsLapsPassword {
 
         Get-Command Get-LapsADPassword -ErrorAction Stop | Out-Null
 
-        $ComputerName = Read-Host "Computername"
+        $ComputerName = Read-Host "PC-Name"
 
         if ([string]::IsNullOrWhiteSpace($ComputerName)) {
-            throw "Kein Computername angegeben."
+            throw "Kein PC-Name angegeben."
         }
 
         $ComputerName = $ComputerName.Trim()
@@ -350,6 +349,121 @@ function Get-WindowsLapsPassword {
     Read-Host "Weiter mit Enter"
 }
 
+
+# ============================================================
+# FUNKTION: ZENTRALES GPUPDATE AUF REMOTE-PC
+# ============================================================
+
+function Invoke-RemoteGPUpdate {
+
+    Clear-Host
+
+    Write-Host ""
+    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host "             ZENTRALES GROUP POLICY UPDATE" -ForegroundColor Cyan
+    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host ""
+
+    # Zielcomputer abfragen
+    $TargetPC = Read-Host "PC-Name"
+
+    if ([string]::IsNullOrWhiteSpace($TargetPC)) {
+        Write-Host "Kein Computername angegeben!" -ForegroundColor Red
+        Read-Host "Weiter mit Enter"
+        return
+    }
+
+    $TargetPC = $TargetPC.Trim()
+
+    # Benutzer abfragen
+    Write-Host ""
+    Write-Host "Verwendete Domäne: $DomainInput" -ForegroundColor Cyan
+
+    $TargetUser = Read-Host "Lokaler Administrator"
+
+    if ([string]::IsNullOrWhiteSpace($TargetUser)) {
+        Write-Host "Kein Benutzer angegeben!" -ForegroundColor Red
+        Read-Host "Weiter mit Enter"
+        return
+    }
+
+    $TargetUser = $TargetUser.Trim()
+
+    # Vorhandene Domäne mit Benutzer kombinieren
+    if ($TargetUser -match '\\' -or $TargetUser -match '@') {
+        $DomainUser = $TargetUser
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($DomainInput)) {
+        $DomainUser = "$DomainInput\$TargetUser"
+    }
+    else {
+        throw "Keine Domäne in der Startkonfiguration vorhanden."
+    }
+
+    Write-Host ""
+    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host "Zielcomputer:    $TargetPC" -ForegroundColor Yellow
+    Write-Host "Domänenbenutzer: $DomainUser" -ForegroundColor Yellow
+    Write-Host "============================================================" -ForegroundColor Cyan
+
+    Write-Host ""
+    $Confirm = Read-Host "GPUpdate jetzt ausführen? (J/N)"
+
+    if ($Confirm -notmatch '^(J|JA)$') {
+        Write-Host "Vorgang abgebrochen." -ForegroundColor Yellow
+        Read-Host "Weiter mit Enter"
+        return
+    }
+
+    try {
+
+        Write-Host ""
+        Write-Host "Prüfe Verbindung zu $TargetPC ..." -ForegroundColor Cyan
+
+        if (-not (Test-Connection -ComputerName $TargetPC -Count 1 -Quiet)) {
+            throw "Computer $TargetPC ist nicht erreichbar."
+        }
+
+        Write-Host "Computer erreichbar." -ForegroundColor Green
+
+        # GroupPolicy-Modul laden
+        Import-Module GroupPolicy -ErrorAction Stop
+
+        Write-Host ""
+        Write-Host "Starte zentrales GPUpdate ..." -ForegroundColor Cyan
+
+        Invoke-GPUpdate `
+            -Computer $TargetPC `
+            -Force `
+            -RandomDelayInMinutes 0 `
+            -ErrorAction Stop
+
+        Write-Host ""
+        Write-Host "============================================================" -ForegroundColor Green
+        Write-Host "          GPUPDATE ERFOLGREICH ANGESTOSSEN" -ForegroundColor Green
+        Write-Host "============================================================" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "Zielcomputer: $TargetPC" -ForegroundColor Yellow
+        Write-Host "Benutzer:     $DomainUser" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Die Gruppenrichtlinienaktualisierung wurde remote angestoßen." -ForegroundColor Green
+        Write-Host ""
+        Write-Host "Hinweis: Invoke-GPUpdate aktualisiert die Computer-" -ForegroundColor Gray
+        Write-Host "und die auf dem Ziel-PC angemeldeten Benutzersitzungen." -ForegroundColor Gray
+
+    }
+    catch {
+
+        Write-Host ""
+        Write-Host "GPUPDATE FEHLGESCHLAGEN!" -ForegroundColor Red
+        Write-Host ""
+        Write-Host $_.Exception.Message -ForegroundColor Yellow
+
+    }
+
+    Write-Host ""
+    Read-Host "Weiter mit Enter"
+}
 
 # ============================================================
 # STARTKONFIGURATION
@@ -408,6 +522,7 @@ if (-not $AdminUser) {
 
 Start-Sleep -Seconds 2
 
+
 # ============================================================
 # HAUPTMENUE
 # ============================================================
@@ -431,6 +546,7 @@ do {
 
     Write-Host "Server-Konto:   $([Security.Principal.WindowsIdentity]::GetCurrent().Name)"
     Write-Host ""
+
     Write-Host "------------------------------------------------------------"
     Write-Host "  ACTIVE DIRECTORY"
     Write-Host "------------------------------------------------------------"
@@ -440,19 +556,22 @@ do {
     Write-Host "  [3]  DNS-Verwaltung"
     Write-Host "  [4]  DHCP-Verwaltung"
     Write-Host "  [5]  Gruppenrichtlinienverwaltung (GPO)"
-    Write-Host "  [6]  Windows LAPS Kennwortabfrage"
+    Write-Host "  [6]  Zentrales GPUpdate auf Remote-PC"
     Write-Host ""
+
     Write-Host "------------------------------------------------------------"
     Write-Host "  SERVER UND INFRASTRUKTUR"
     Write-Host "------------------------------------------------------------"
     Write-Host ""
-    Write-Host "  [7]  DFS-Verwaltung"
-    Write-Host "  [8]  Computerverwaltung"
-    Write-Host "  [9]  Ereignisanzeige"
-    Write-Host "  [10] Hyper-V-Manager"
-    Write-Host "  [11] Server-Manager"
-    Write-Host "  [12] Druckverwaltung"
+    Write-Host "  [7]  Windows LAPS Kennwortabfrage"
+    Write-Host "  [8]  DFS-Verwaltung"
+    Write-Host "  [9]  Computerverwaltung"
+    Write-Host "  [10] Ereignisanzeige"
+    Write-Host "  [11] Hyper-V-Manager"
+    Write-Host "  [12] Server-Manager"
+    Write-Host "  [13] Druckverwaltung"
     Write-Host ""
+
     Write-Host "------------------------------------------------------------"
     Write-Host ""
     Write-Host "  [0]  Beenden"
@@ -480,54 +599,64 @@ do {
 
         "4" {
             $DhcpServer = Read-Host "DHCP-Server eingeben"
+
             if (-not [string]::IsNullOrWhiteSpace($DhcpServer)) {
                 $DhcpPath = Join-Path $System32 "dhcpmgmt.msc"
+
                 Start-ADProcess -Name "DHCP-Verwaltung" -File $MMC -Arguments "`"$DhcpPath`" /ComputerName $DhcpServer"
             }
         }
 
         "5" {
             $GpoPath = Join-Path $System32 "gpmc.msc"
+
             Start-ADProcess -Name "Gruppenrichtlinienverwaltung" -File $MMC -Arguments "`"$GpoPath`""
         }
 
         "6" {
-            Get-WindowsLapsPassword
+            Invoke-RemoteGPUpdate
         }
 
         # SERVER UND INFRASTRUKTUR
 
         "7" {
-            Start-MmcTool "DFS-Verwaltung" "dfsmgmt.msc"
+            Get-WindowsLapsPassword
         }
 
         "8" {
+            Start-MmcTool "DFS-Verwaltung" "dfsmgmt.msc"
+        }
+
+        "9" {
             $TargetPC = Read-Host "Ziel-PC eingeben"
 
             if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
                 $SnapInPath = Join-Path $System32 "compmgmt.msc"
                 $Arguments = "`"$SnapInPath`" /computer=$TargetPC"
+
                 Start-Tool "Computerverwaltung" $MMC $Arguments
             }
         }
 
-        "9" {
+        "10" {
             $TargetPC = Read-Host "Ziel-PC eingeben (z.B. PC-001)"
+
             if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
                 $EventViewerExe = Join-Path $System32 "eventvwr.exe"
+
                 Start-Tool -Name "Ereignisanzeige" -File $EventViewerExe -Arguments $TargetPC
             }
         }
 
-        "10" {
+        "11" {
             Start-MmcTool "Hyper-V-Manager" "virtmgmt.msc"
         }
 
-        "11" {
+        "12" {
             Start-Tool "Server-Manager" (Join-Path $System32 "ServerManager.exe")
         }
 
-        "12" {
+        "13" {
             Start-MmcTool "Druckverwaltung" "printmanagement.msc"
         }
 
@@ -544,6 +673,7 @@ do {
     }
 
 } while ($Auswahl -ne "0")
+
 
 # ============================================================
 # AUFRÄUMEN
