@@ -112,8 +112,17 @@ try {
             $DownloadedHash = & $GetGitHash $UpdateFile
 
             if ($DownloadedHash -ne $GitHubInfo.sha.ToLowerInvariant()) {
-                throw "Die heruntergeladene Datei stimmt nicht mit GitHub überein."
-            }
+                Write-Host ""
+                Write-Host "Hash-Prüfung fehlgeschlagen!" -ForegroundColor Red
+                Write-Host "GitHub SHA:     $($GitHubInfo.sha)"
+                Write-Host "Download SHA:   $DownloadedHash"
+                Write-Host "GitHub Größe:   $($GitHubInfo.size) Bytes"
+                Write-Host "Download Größe: $((Get-Item $UpdateFile).Length) Bytes"
+                Write-Host "Download URL:   $DownloadUrl"
+                Write-Host ""
+                Read-Host "Enter drücken, um fortzufahren."
+                exit 1
+            }          
 
             Write-Host "Download erfolgreich überprüft." -ForegroundColor Green
             Write-Host "Installiere Update..." -ForegroundColor Cyan
