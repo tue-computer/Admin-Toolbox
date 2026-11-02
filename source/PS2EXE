@@ -4,7 +4,7 @@ Invoke-PS2EXE `
     -IconFile ".\source\Admin-Toolbox.ico" `
     -Title "Admin Toolbox" `
     -Description "Active Directory- und Serververwaltung" `
-    -Company "T&E" `
+    -Company "T&E " `
     -Product "Admin-Toolbox" `
     -RequireAdmin `
     -UNICODEEncoding

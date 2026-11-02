@@ -39,7 +39,7 @@ try {
             -ErrorAction Stop
 
         if (-not $GitHubInfo.sha -or $GitHubInfo.type -ne "file") {
-            throw "Ungültige Dateiinformationen von GitHub erhalten."
+            throw "Ungültige Datei-Informationen von GitHub erhalten."
         }
 
         # GitHub-Blob-Hash berechnen
