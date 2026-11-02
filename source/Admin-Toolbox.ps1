@@ -238,7 +238,7 @@ finally {
                 -ErrorAction Stop
 
             if (-not $HelperProcess) {
-                throw "Der Hilfsprozess für das Update konnte nicht gestartet werden."
+                throw "Der Update-Hilfsprozess konnte nicht gestartet werden."
             }
 
             # Alte EXE beenden
