@@ -296,7 +296,7 @@ function Get-WindowsLapsPassword {
         # LAPS-Modul laden
         Import-Module LAPS -ErrorAction Stop
 
-        $Command = Get-Command Get-LapsADPassword -ErrorAction Stop
+        Get-Command Get-LapsADPassword -ErrorAction Stop | Out-Null
 
         $ComputerName = Read-Host "Computername"
 
