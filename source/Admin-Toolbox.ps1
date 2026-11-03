@@ -76,7 +76,7 @@ try {
         else {
 
             Write-Host "Neue Version gefunden!" -ForegroundColor Yellow
-            Write-Host "Lade Updates herunter..." -ForegroundColor Cyan
+            Write-Host "Lade Update herunter..." -ForegroundColor Cyan
 
             # Temporäre Update-Datei
             $UpdateFile = "$ExePath.update"
@@ -412,7 +412,7 @@ function Start-AdminProcess {
             throw "Programm wurde nicht gefunden: $File"
         }
 
-        if (-not $UseADCredentials -or [string]::IsNullOrWhiteSpace($AdminUser)) {
+        if (-not $UseADCredentials -or -not $SecureAdminPassword) {
             $StartParams = @{
                 FilePath = $File
                 WorkingDirectory = $WorkingDirectory
@@ -639,18 +639,24 @@ function Invoke-RemoteGPUpdate {
             }
 
             "2" {
-                if ([string]::IsNullOrWhiteSpace($AdminUser) -or -not $AdminCredential) {
-                    throw "Es wurde bei der Startkonfiguration kein AD-Konto mit Kennwort hinterlegt."
+                if (-not $AdminCredential) {
+
+                    $SelectedUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+
+                    Write-Host ""
+                    Write-Host "Kein separates AD-Konto hinterlegt." -ForegroundColor Yellow
+                    Write-Host "Verwende angemeldeten Benutzer: $SelectedUser" -ForegroundColor Green
                 }
+                else {
 
-                $Credential = $AdminCredential
-                $SelectedUser = $AdminUser
-                $InvokeParams.Credential = $Credential
+                    $Credential = $AdminCredential
+                    $SelectedUser = $AdminUser
+                    $InvokeParams.Credential = $Credential
 
-                Write-Host ""
-                Write-Host "Verwendeter Benutzer: $SelectedUser" -ForegroundColor Yellow
+                    Write-Host ""
+                    Write-Host "Verwendeter Benutzer: $SelectedUser" -ForegroundColor Yellow
+                }
             }
-
             "3" {
                 $CustomUser = (Read-Host "Benutzername (DOMÄNE\Benutzer oder Benutzer@Domäne)").Trim()
 
@@ -729,22 +735,21 @@ Write-Host "Domäne:   $CurrentDomain" -ForegroundColor Yellow
 Write-Host ""
 
 # AD-Benutzer optional abfragen
-$AdminName = Read-Host "AD-Administrator (ohne Domäne)"
+$AdminName = Read-Host "AD-Administrator (ohne Domäne, optional)"
 
 if ([string]::IsNullOrWhiteSpace($AdminName)) {
 
-    # Aktuell angemeldeten Benutzer verwenden
+    # Angemeldeten Benutzer als AD-Benutzer übernehmen
     $AdminUser = $CurrentUser
     $AdminCredential = $null
     $SecureAdminPassword = $null
 
     Write-Host ""
-    Write-Host "Es wird der aktuell angemeldete Benutzer verwendet:" -ForegroundColor Green
-    Write-Host "$AdminUser" -ForegroundColor Yellow
+    Write-Host "Kein separater AD-Administrator hinterlegt." -ForegroundColor Yellow
+    Write-Host "Verwende angemeldeten Benutzer: $AdminUser" -ForegroundColor Green
 }
 else {
 
-    # Separaten AD-Benutzer verwenden
     $AdminUser = "$CurrentDomain\$($AdminName.Trim())"
 
     $SecureAdminPassword = Read-Host "AD-Kennwort" -AsSecureString
@@ -760,6 +765,7 @@ else {
 }
 
 Start-Sleep -Seconds 1
+
 # ============================================================
 # HAUPTMENÜ
 # ============================================================
@@ -876,13 +882,7 @@ do {
 
             switch ($ServerManagerChoice) {
                 "1" {
-                    if (-not $AdminCredential) {
-                        Write-Host "Kein AD-Konto hinterlegt!" -ForegroundColor Red
-                        Read-Host "Weiter mit Enter"
-                        break
-                    }
-
-                    Start-AdminProcess -Name "Server-Manager (AD)" `
+                    Start-AdminProcess -Name "Server-Manager" `
                         -File (Join-Path $System32 "ServerManager.exe") `
                         -UseADCredentials $true
                 }
