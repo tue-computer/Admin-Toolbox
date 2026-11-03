@@ -506,14 +506,15 @@ function Start-MmcTool {
     Start-AdminProcess -Name $Name -File $MMC -Arguments "`"$SnapInPath`"" -UseADCredentials $UseADCredentials
 }
 
-
 # ============================================================
 # WINDOWS LAPS
 # ============================================================
-
 function Get-WindowsLapsPassword {
-    Clear-Host
+    param(
+        [string]$ComputerName
+    )
 
+    Clear-Host
     Write-Host ""
     Write-Host "============================================================" -ForegroundColor Cyan
     Write-Host "                    WINDOWS LAPS" -ForegroundColor Cyan
@@ -523,6 +524,7 @@ function Get-WindowsLapsPassword {
     try {
         $CurrentUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 
+        Write-Host "Ziel-PC: $ComputerName" -ForegroundColor Yellow
         Write-Host "LAPS-Abfrage mit Windows-Benutzer:" -ForegroundColor Green
         Write-Host $CurrentUser -ForegroundColor Yellow
         Write-Host ""
@@ -530,18 +532,13 @@ function Get-WindowsLapsPassword {
         Import-Module LAPS -ErrorAction Stop
         Get-Command Get-LapsADPassword -ErrorAction Stop | Out-Null
 
-        $ComputerName = (Read-Host "PC-Name").Trim()
-
-        if ([string]::IsNullOrWhiteSpace($ComputerName)) {
-            throw "Kein PC-Name angegeben."
-        }
-
-        Write-Host ""
         Write-Host "Rufe LAPS-Kennwort für $ComputerName ab ..." -ForegroundColor Cyan
+        Write-Host ""
 
-        $Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-        $LapsResult = Get-LapsADPassword -Identity $ComputerName -AsPlainText -ErrorAction Stop
-        $Stopwatch.Stop()
+        $LapsResult = Get-LapsADPassword `
+            -Identity $ComputerName `
+            -AsPlainText `
+            -ErrorAction Stop
 
         if (-not $LapsResult) {
             throw "Keine LAPS-Daten für $ComputerName gefunden."
@@ -553,7 +550,7 @@ function Get-WindowsLapsPassword {
         Write-Host "============================================================" -ForegroundColor Green
         Write-Host ""
 
-        $LapsResult | Format-List ComputerName,Account,Password,PasswordUpdateTime,ExpirationTimestamp
+        $LapsResult | Format-List ComputerName, Account, Password, PasswordUpdateTime, ExpirationTimestamp
     }
     catch {
         Write-Host ""
@@ -566,7 +563,6 @@ function Get-WindowsLapsPassword {
     Write-Host ""
     Read-Host "Weiter mit Enter"
 }
-
 
 # ============================================================
 # REMOTE-GPUPDATE
@@ -909,7 +905,11 @@ do {
         }
 
         "80" {
-            Get-WindowsLapsPassword
+            $TargetPC = (Read-Host "PC-Name").Trim()
+
+            if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
+                Get-WindowsLapsPassword -ComputerName $TargetPC
+            }
         }
 
         "0" {
