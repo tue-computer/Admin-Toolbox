@@ -715,7 +715,9 @@ Write-Host "Domäne:   $CurrentDomain" -ForegroundColor Yellow
 Write-Host ""
 
 # AD-Benutzer optional abfragen
-$AdminName = Read-Host "AD-Administrator (ohne Domäne, optional)"
+Write-Host "Anmeldedaten für Active Directory eingeben. Leer lassen, um aktuell angemeldeten Benutzer zu verwenden." -ForegroundColor Gray
+Write-Host "AD-Administrator (ohne Domäne): " -ForegroundColor Magenta -NoNewline
+$AdminName = Read-Host
 
 if ([string]::IsNullOrWhiteSpace($AdminName)) {
 
@@ -732,7 +734,8 @@ else {
 
     $AdminUser = "$CurrentDomain\$($AdminName.Trim())"
 
-    $SecureAdminPassword = Read-Host "AD-Kennwort" -AsSecureString
+    Write-Host "AD-Kennwort: " -ForegroundColor Magenta -NoNewline
+    $SecureAdminPassword = Read-Host -AsSecureString
 
     $AdminCredential = [PSCredential]::new(
         $AdminUser,
@@ -794,7 +797,8 @@ do {
     Write-Host " [0] Beenden" -ForegroundColor Yellow
     Write-Host ""
 
-    $Auswahl = Read-Host "Bitte Auswahl treffen"
+    Write-Host "Bitte Auswahl treffen: " -ForegroundColor Magenta -NoNewline
+    $Auswahl = Read-Host
 
     switch ($Auswahl) {
         "10" {
