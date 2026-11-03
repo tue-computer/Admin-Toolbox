@@ -514,6 +514,8 @@ function Get-WindowsLapsPassword {
         [string]$ComputerName
     )
 
+    Clear-Host
+
     try {
         $CurrentUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 
@@ -534,6 +536,7 @@ function Get-WindowsLapsPassword {
             throw "Keine LAPS-Daten für $ComputerName gefunden."
         }
 
+        Write-Host "LAPS-Abfrage erfolgreich!" -ForegroundColor Green
         $LapsResult | Format-List ComputerName, Account, Password, PasswordUpdateTime, ExpirationTimestamp
     }
     catch {
