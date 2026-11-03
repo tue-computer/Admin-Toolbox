@@ -551,31 +551,313 @@ function Get-WindowsLapsPassword {
     Read-Host "Weiter mit Enter"
 }
 
+
+# ============================================================
+# ACTIVE DIRECTORY - DYNAMISCHE OU-AUSWAHL
+# ============================================================
+
+function Select-ADOrganizationalUnit {
+
+    Import-Module ActiveDirectory -ErrorAction Stop
+
+    # Bereits ermittelte Domäne verwenden
+    $DomainDN = (Get-ADDomain -Identity $CurrentDomain -ErrorAction Stop).DistinguishedName
+
+    # Feste Einstiegs-OU suchen
+    $RootOU = Get-ADOrganizationalUnit `
+        -Identity "OU=ORGANISATION,$DomainDN" `
+        -ErrorAction Stop
+
+    # Navigationspfad
+    $Path = @($RootOU)
+
+    while ($true) {
+
+        $CurrentOU = $Path[-1]
+
+        Clear-Host
+
+        Write-Host ""
+        Write-Host "============================================================" -ForegroundColor Cyan
+        Write-Host "              ACTIVE DIRECTORY OU-AUSWAHL" -ForegroundColor Cyan
+        Write-Host "============================================================" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "Domäne: $CurrentDomain" -ForegroundColor Yellow
+        Write-Host ""
+
+        Write-Host "Aktueller Pfad:" -ForegroundColor Cyan
+
+        foreach ($Entry in $Path) {
+            Write-Host "  \ $($Entry.Name)" -ForegroundColor Yellow
+        }
+
+        Write-Host ""
+        Write-Host "------------------------------------------------------------"
+
+        # Untergeordnete OUs dynamisch auslesen
+        $OUs = @(
+            Get-ADOrganizationalUnit `
+                -Filter * `
+                -SearchBase $CurrentOU.DistinguishedName `
+                -SearchScope OneLevel `
+                -ErrorAction Stop |
+            Sort-Object Name
+        )
+
+        if ($OUs.Count -gt 0) {
+
+            for ($i = 0; $i -lt $OUs.Count; $i++) {
+
+                Write-Host "[$($i + 1)] $($OUs[$i].Name)" -ForegroundColor White
+            }
+        }
+        else {
+            Write-Host "Keine weiteren Unter-OUs vorhanden." -ForegroundColor Gray
+        }
+
+        Write-Host ""
+        Write-Host "------------------------------------------------------------"
+        Write-Host "[A] Diese OU inklusive Unter-OUs auswählen" -ForegroundColor Green
+        Write-Host "[D] Nur diese OU auswählen" -ForegroundColor Green
+
+        if ($Path.Count -gt 1) {
+            Write-Host "[Z] Eine Ebene zurück" -ForegroundColor Yellow
+        }
+
+        Write-Host "[0] Abbrechen" -ForegroundColor Red
+        Write-Host ""
+
+        $Selection = (Read-Host "Auswahl").Trim()
+
+        switch -Regex ($Selection) {
+
+            '^0$' {
+                return $null
+            }
+
+            '^[Aa]$' {
+
+                return [PSCustomObject]@{
+                    DistinguishedName = $CurrentOU.DistinguishedName
+                    SearchScope       = "Subtree"
+                    OUName            = $CurrentOU.Name
+                }
+            }
+
+            '^[Dd]$' {
+
+                return [PSCustomObject]@{
+                    DistinguishedName = $CurrentOU.DistinguishedName
+                    SearchScope       = "OneLevel"
+                    OUName            = $CurrentOU.Name
+                }
+            }
+
+            '^[Zz]$' {
+
+                if ($Path.Count -gt 1) {
+                    $Path = @($Path | Select-Object -First ($Path.Count - 1))
+                }
+                else {
+                    Write-Host "Du befindest dich bereits in der obersten OU." -ForegroundColor Yellow
+                    Start-Sleep -Seconds 1
+                }
+            }
+
+            '^\d+$' {
+
+                $Index = [int]$Selection - 1
+
+                if ($Index -ge 0 -and $Index -lt $OUs.Count) {
+
+                    # Eine Ebene tiefer navigieren
+                    $Path += $OUs[$Index]
+                }
+                else {
+                    Write-Host "Ungültige Auswahl!" -ForegroundColor Red
+                    Start-Sleep -Seconds 1
+                }
+            }
+
+            default {
+                Write-Host "Ungültige Auswahl!" -ForegroundColor Red
+                Start-Sleep -Seconds 1
+            }
+        }
+    }
+}
+
 # ============================================================
 # REMOTE-GPUPDATE
-# 1 = AKTUELLER BENUTZER
-# 2 = HINTERLEGTER AD-BENUTZER
-# 3 = ANDERER BENUTZER
+# EINZEL-PC / MEHRERE PCS / OU / GESAMTE DOMÄNE
 # ============================================================
 
 function Invoke-RemoteGPUpdate {
-    Clear-Host
 
-    Write-Host ""
-    Write-Host "============================================================" -ForegroundColor Cyan
-    Write-Host "             ZENTRALES GROUP POLICY UPDATE" -ForegroundColor Cyan
-    Write-Host "============================================================" -ForegroundColor Cyan
-    Write-Host ""
+    Clear-Host
 
     $Credential = $null
 
     try {
-        $TargetPC = (Read-Host "Ziel-PC").Trim()
 
-        if ([string]::IsNullOrWhiteSpace($TargetPC)) {
-            Write-Host "Kein Computername angegeben!" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "============================================================" -ForegroundColor Cyan
+        Write-Host "             ZENTRALES GROUP POLICY UPDATE" -ForegroundColor Cyan
+        Write-Host "============================================================" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "Domäne: $CurrentDomain" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "ZIELAUSWAHL" -ForegroundColor Cyan
+        Write-Host "------------------------------------------------------------"
+        Write-Host "[1] Einzelnen PC aktualisieren"
+        Write-Host "[2] Mehrere PCs manuell eingeben"
+        Write-Host "[3] Computer aus Active Directory OU auswählen"
+        Write-Host "[4] Alle Computer der Domäne aktualisieren"
+        Write-Host ""
+        Write-Host "[0] Zurück"
+        Write-Host ""
+
+        $TargetChoice = Read-Host "Auswahl"
+
+        $TargetComputers = @()
+
+        switch ($TargetChoice) {
+
+            # ------------------------------------------------
+            # EINZELNER PC
+            # ------------------------------------------------
+
+            "1" {
+
+                $TargetPC = (Read-Host "Computername").Trim()
+
+                if ([string]::IsNullOrWhiteSpace($TargetPC)) {
+                    throw "Kein Computername angegeben."
+                }
+
+                $TargetComputers = @($TargetPC)
+            }
+
+            # ------------------------------------------------
+            # MEHRERE PCS MANUELL
+            # ------------------------------------------------
+
+            "2" {
+
+                Write-Host ""
+                Write-Host "Mehrere Computer kommasepariert eingeben." -ForegroundColor Cyan
+                Write-Host "Beispiel: PC01, PC02, PC03"
+                Write-Host ""
+
+                $InputPCs = Read-Host "Computer"
+
+                $TargetComputers = @(
+                    $InputPCs -split '[,;]' |
+                    ForEach-Object { $_.Trim() } |
+                    Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+                )
+            }
+
+            # ------------------------------------------------
+            # ACTIVE DIRECTORY OU-AUSWAHL
+            # ------------------------------------------------
+
+            "3" {
+
+                $SelectedOU = Select-ADOrganizationalUnit
+
+                if (-not $SelectedOU) {
+                    return
+                }
+
+                Write-Host ""
+                Write-Host "Lese Computer aus der ausgewählten OU..." -ForegroundColor Cyan
+
+                Import-Module ActiveDirectory -ErrorAction Stop
+
+                $TargetComputers = @(
+                    Get-ADComputer `
+                        -SearchBase $SelectedOU.DistinguishedName `
+                        -SearchScope $SelectedOU.SearchScope `
+                        -Filter 'Enabled -eq $true' `
+                        -ErrorAction Stop |
+                    Select-Object -ExpandProperty Name
+                )
+
+                Write-Host ""
+                Write-Host "Ausgewählte OU: $($SelectedOU.OUName)" -ForegroundColor Yellow
+            }
+
+            # ------------------------------------------------
+            # GESAMTE DOMÄNE
+            # ------------------------------------------------
+
+            "4" {
+
+                Write-Host ""
+                Write-Host "Lese alle aktivierten Domänencomputer..." -ForegroundColor Cyan
+
+                Import-Module ActiveDirectory -ErrorAction Stop
+
+                $DomainDN = (Get-ADDomain -Identity $CurrentDomain).DistinguishedName
+
+                $TargetComputers = @(
+                    Get-ADComputer `
+                        -SearchBase $DomainDN `
+                        -SearchScope Subtree `
+                        -Filter 'Enabled -eq $true' `
+                        -ErrorAction Stop |
+                    Select-Object -ExpandProperty Name
+                )
+            }
+
+            "0" {
+                return
+            }
+
+            default {
+                throw "Ungültige Auswahl."
+            }
+        }
+
+        # ----------------------------------------------------
+        # ZIELCOMPUTER PRÜFEN
+        # ----------------------------------------------------
+
+        $TargetComputers = @(
+            $TargetComputers |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+            Sort-Object -Unique
+        )
+
+        if ($TargetComputers.Count -eq 0) {
+            throw "Keine Computer für das GPUpdate gefunden."
+        }
+
+        Write-Host ""
+        Write-Host "============================================================" -ForegroundColor Cyan
+        Write-Host "                  AUSGEWÄHLTE COMPUTER" -ForegroundColor Cyan
+        Write-Host "============================================================" -ForegroundColor Cyan
+        Write-Host ""
+
+        foreach ($PC in $TargetComputers) {
+            Write-Host "  $PC" -ForegroundColor Gray
+        }
+
+        Write-Host ""
+        Write-Host "Anzahl Computer: $($TargetComputers.Count)" -ForegroundColor Yellow
+        Write-Host ""
+
+        $Confirm = Read-Host "GPUpdate auf diesen Computern starten? (J/N)"
+
+        if ($Confirm -notmatch '^(J|JA)$') {
+            Write-Host "Vorgang abgebrochen." -ForegroundColor Yellow
             return
         }
+
+        # ----------------------------------------------------
+        # BENUTZER FÜR REMOTE-GPUPDATE
+        # ----------------------------------------------------
 
         Write-Host ""
         Write-Host "BENUTZER FÜR REMOTE-GPUPDATE" -ForegroundColor Cyan
@@ -588,9 +870,10 @@ function Invoke-RemoteGPUpdate {
         $UserChoice = Read-Host "Auswahl"
 
         $InvokeParams = @{
-            ComputerName = $TargetPC
             ErrorAction = "Stop"
+
             ScriptBlock = {
+
                 $GpUpdateExe = Join-Path $env:WINDIR "System32\gpupdate.exe"
 
                 Write-Output "Starte GPUpdate auf $env:COMPUTERNAME ..."
@@ -599,92 +882,180 @@ function Invoke-RemoteGPUpdate {
                 $GpExitCode = $LASTEXITCODE
 
                 foreach ($Line in $GpOutput) {
-                    Write-Output $Line
+                    Write-Output $Line.ToString()
                 }
 
                 if ($GpExitCode -ne 0) {
                     throw "gpupdate.exe wurde mit Fehlercode $GpExitCode beendet."
                 }
 
-                Write-Output "GPUpdate wurde auf $env:COMPUTERNAME ausgeführt."
+                Write-Output "GPUpdate erfolgreich auf $env:COMPUTERNAME."
             }
         }
 
         switch ($UserChoice) {
+
+            # Aktueller Windows-Benutzer
+
             "1" {
+
                 $SelectedUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 
                 Write-Host ""
                 Write-Host "Verwendeter Benutzer: $SelectedUser" -ForegroundColor Yellow
             }
 
+            # Hinterlegter AD-Benutzer
+
             "2" {
-                if (-not $AdminCredential) {
+
+                if ($AdminCredential) {
+
+                    $Credential = $AdminCredential
+                    $InvokeParams.Credential = $Credential
+
+                    $SelectedUser = $AdminUser
+                }
+                else {
 
                     $SelectedUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 
                     Write-Host ""
                     Write-Host "Kein separates AD-Konto hinterlegt." -ForegroundColor Yellow
-                    Write-Host "Verwende angemeldeten Benutzer: $SelectedUser" -ForegroundColor Green
+                    Write-Host "Verwende angemeldeten Benutzer." -ForegroundColor Green
                 }
-                else {
 
-                    $Credential = $AdminCredential
-                    $SelectedUser = $AdminUser
-                    $InvokeParams.Credential = $Credential
-
-                    Write-Host ""
-                    Write-Host "Verwendeter Benutzer: $SelectedUser" -ForegroundColor Yellow
-                }
+                Write-Host ""
+                Write-Host "Verwendeter Benutzer: $SelectedUser" -ForegroundColor Yellow
             }
+
+            # Anderer Benutzer
+
             "3" {
+
                 $CustomUser = (Read-Host "Benutzername (DOMÄNE\Benutzer oder Benutzer@Domäne)").Trim()
 
                 if ([string]::IsNullOrWhiteSpace($CustomUser)) {
                     throw "Kein Benutzer angegeben."
                 }
 
-                $Credential = Get-Credential -UserName $CustomUser -Message "Kennwort für Benutzer angeben"
+                $Credential = Get-Credential `
+                    -UserName $CustomUser `
+                    -Message "Kennwort für Remote-GPUpdate eingeben"
 
                 if (-not $Credential) {
                     throw "Keine Zugangsdaten angegeben."
                 }
 
-                $SelectedUser = $Credential.UserName
                 $InvokeParams.Credential = $Credential
+
+                $SelectedUser = $Credential.UserName
 
                 Write-Host ""
                 Write-Host "Verwendeter Benutzer: $SelectedUser" -ForegroundColor Yellow
             }
 
             default {
-                Write-Host "Ungültige Auswahl!" -ForegroundColor Red
-                return
+                throw "Ungültige Benutzerauswahl."
             }
         }
 
-        Write-Host "Starte gpupdate auf $TargetPC ..." -ForegroundColor Green
+        # ----------------------------------------------------
+        # GPUPDATE AUF ALLEN ZIELCOMPUTERN
+        # ----------------------------------------------------
 
-        $RemoteResult = Invoke-Command @InvokeParams
+        $Results = @()
+        $Counter = 0
 
-        Write-Host ""
-        foreach ($Line in $RemoteResult) {
-            Write-Host $Line
+        foreach ($PC in $TargetComputers) {
+
+            $Counter++
+
+            Write-Host ""
+            Write-Host "============================================================" -ForegroundColor Cyan
+            Write-Host "[$Counter/$($TargetComputers.Count)] $PC" -ForegroundColor Cyan
+            Write-Host "============================================================" -ForegroundColor Cyan
+
+            try {
+
+                $RemoteResult = Invoke-Command `
+                    -ComputerName $PC `
+                    @InvokeParams
+
+                foreach ($Line in $RemoteResult) {
+                    Write-Host $Line -ForegroundColor Gray
+                }
+
+                Write-Host "Erfolgreich abgeschlossen!" -ForegroundColor Green
+
+                $Results += [PSCustomObject]@{
+                    Computer = $PC
+                    Status   = "Erfolgreich"
+                    Fehler   = ""
+                }
+            }
+            catch {
+
+                $ErrorMessage = $_.Exception.Message
+
+                Write-Host "GPUpdate fehlgeschlagen!" -ForegroundColor Red
+                Write-Host $ErrorMessage -ForegroundColor Yellow
+
+                $Results += [PSCustomObject]@{
+                    Computer = $PC
+                    Status   = "Fehlgeschlagen"
+                    Fehler   = $ErrorMessage
+                }
+            }
         }
 
-        Write-Host "gpupdate erfolgreich" -ForegroundColor Green
+        # ----------------------------------------------------
+        # ABSCHLUSSAUSWERTUNG
+        # ----------------------------------------------------
+
+        $SuccessCount = @(
+            $Results | Where-Object { $_.Status -eq "Erfolgreich" }
+        ).Count
+
+        $FailedCount = @(
+            $Results | Where-Object { $_.Status -eq "Fehlgeschlagen" }
+        ).Count
+
+        Write-Host ""
+        Write-Host ""
+        Write-Host "============================================================" -ForegroundColor Cyan
+        Write-Host "                 GPUPDATE ZUSAMMENFASSUNG" -ForegroundColor Cyan
+        Write-Host "============================================================" -ForegroundColor Cyan
+        Write-Host ""
+
+        $Results | Format-Table Computer, Status, Fehler -Wrap -AutoSize
+
+        Write-Host ""
+        Write-Host "Gesamt:          $($TargetComputers.Count)" -ForegroundColor Cyan
+        Write-Host "Erfolgreich:     $SuccessCount" -ForegroundColor Green
+        Write-Host "Fehlgeschlagen:  $FailedCount" -ForegroundColor Red
+
+        Write-Host ""
+
+        if ($FailedCount -eq 0) {
+            Write-Host "Alle GPUpdates wurden erfolgreich ausgeführt!" -ForegroundColor Green
+        }
+        else {
+            Write-Host "Einige Computer konnten nicht aktualisiert werden." -ForegroundColor Yellow
+        }
     }
     catch {
+
         Write-Host ""
-        Write-Host "gpupdate fehlgeschlagen!" -ForegroundColor Red
+        Write-Host "GPUpdate fehlgeschlagen!" -ForegroundColor Red
         Write-Host $_.Exception.Message -ForegroundColor Yellow
-        Write-Host ""
-        Write-Host "Bitte WinRM, Firewall und Berechtigungen prüfen." -ForegroundColor Yellow
     }
     finally {
-        # Nur lokale Referenz freigeben.
-        # Das globale AD-Credential bleibt für die Sitzung erhalten.
-        if ($Credential -ne $AdminCredential) {
+
+        # Nur lokal verwendete Zugangsdaten freigeben.
+        # Das globale AdminCredential bleibt erhalten.
+
+        if ($Credential -and $Credential -ne $AdminCredential) {
             $Credential = $null
         }
     }
@@ -692,6 +1063,7 @@ function Invoke-RemoteGPUpdate {
     Write-Host ""
     Read-Host "Weiter mit Enter"
 }
+
 # ============================================================
 # STARTKONFIGURATION
 # ============================================================
