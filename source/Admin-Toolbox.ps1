@@ -935,42 +935,11 @@ function Invoke-RemoteGPUpdate {
 
         $ThrottleLimit = 10
 
-        if ($TargetComputers.Count -gt 1) {
-
-            Write-Host ""
-            Write-Host "PARALLELE AUSFÜHRUNG" -ForegroundColor Cyan
-            Write-Host "------------------------------------------------------------"
-            Write-Host "Standardmäßig werden 10 Computer gleichzeitig bearbeitet."
-
-            $ThrottleInput = Read-Host "Maximale gleichzeitige Verbindungen [10]"
-
-            if (-not [string]::IsNullOrWhiteSpace($ThrottleInput)) {
-
-                $ParsedLimit = 0
-
-                if (-not [int]::TryParse($ThrottleInput, [ref]$ParsedLimit)) {
-                    throw "Ungültige Anzahl gleichzeitiger Verbindungen."
-                }
-
-                if ($ParsedLimit -lt 1 -or $ParsedLimit -gt 32) {
-                    throw "Bitte einen Wert zwischen 1 und 32 eingeben."
-                }
-
-                $ThrottleLimit = $ParsedLimit
-            }
-        }
-
-        Write-Host ""
-        Write-Host "Starte GPUpdate auf $($TargetComputers.Count) Computer(n)..." -ForegroundColor Cyan
-        Write-Host "Gleichzeitige Verbindungen: $ThrottleLimit" -ForegroundColor Yellow
-        Write-Host ""
-
         # ----------------------------------------------------
         # REMOTE-SCRIPTBLOCK
         # ----------------------------------------------------
 
         $RemoteScriptBlock = {
-
             try {
 
                 $GpUpdateExe = Join-Path $env:WINDIR "System32\gpupdate.exe"
@@ -1103,25 +1072,6 @@ function Invoke-RemoteGPUpdate {
         }
         else {
             Write-Host "Einige Computer konnten nicht aktualisiert werden." -ForegroundColor Yellow
-        }
-
-        # Detailausgabe optional anzeigen
-        Write-Host ""
-        Write-Host "DETAILAUSGABE" -ForegroundColor Cyan
-        Write-Host "------------------------------------------------------------"
-
-        foreach ($Result in $Results) {
-
-            Write-Host ""
-            Write-Host "$($Result.Computer) - $($Result.Status)" -ForegroundColor Yellow
-
-            if ($Result.Ausgabe) {
-                Write-Host $Result.Ausgabe -ForegroundColor Gray
-            }
-
-            if ($Result.Fehler) {
-                Write-Host $Result.Fehler -ForegroundColor Red
-            }
         }
     }
     catch {
