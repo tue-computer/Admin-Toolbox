@@ -514,26 +514,16 @@ function Get-WindowsLapsPassword {
         [string]$ComputerName
     )
 
-    Clear-Host
-    Write-Host ""
-    Write-Host "============================================================" -ForegroundColor Cyan
-    Write-Host "                    WINDOWS LAPS" -ForegroundColor Cyan
-    Write-Host "============================================================" -ForegroundColor Cyan
-    Write-Host ""
-
     try {
         $CurrentUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 
-        Write-Host "Ziel-PC: $ComputerName" -ForegroundColor Yellow
-        Write-Host "LAPS-Abfrage mit Windows-Benutzer:" -ForegroundColor Green
-        Write-Host $CurrentUser -ForegroundColor Yellow
+        Write-Host "LAPS-Abfrage mit Windows-Benutzer: $CurrentUser" -ForegroundColor Yellow
         Write-Host ""
 
         Import-Module LAPS -ErrorAction Stop
         Get-Command Get-LapsADPassword -ErrorAction Stop | Out-Null
 
         Write-Host "Rufe LAPS-Kennwort für $ComputerName ab ..." -ForegroundColor Cyan
-        Write-Host ""
 
         $LapsResult = Get-LapsADPassword `
             -Identity $ComputerName `
@@ -543,12 +533,6 @@ function Get-WindowsLapsPassword {
         if (-not $LapsResult) {
             throw "Keine LAPS-Daten für $ComputerName gefunden."
         }
-
-        Write-Host ""
-        Write-Host "============================================================" -ForegroundColor Green
-        Write-Host "                    LAPS-ERGEBNIS" -ForegroundColor Green
-        Write-Host "============================================================" -ForegroundColor Green
-        Write-Host ""
 
         $LapsResult | Format-List ComputerName, Account, Password, PasswordUpdateTime, ExpirationTimestamp
     }
