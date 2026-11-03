@@ -690,6 +690,7 @@ function Select-ADOrganizationalUnit {
 # ============================================================
 # REMOTE-GPUPDATE
 # EINZEL-PC / MEHRERE PCS / OU / GESAMTE DOMÄNE
+# PARALLELE AUSFÜHRUNG
 # ============================================================
 
 function Invoke-RemoteGPUpdate {
@@ -697,6 +698,7 @@ function Invoke-RemoteGPUpdate {
     Clear-Host
 
     $Credential = $null
+    $RemoteJob = $null
 
     try {
 
@@ -846,22 +848,16 @@ function Invoke-RemoteGPUpdate {
 
         Write-Host ""
         Write-Host "Anzahl Computer: $($TargetComputers.Count)" -ForegroundColor Yellow
-        Write-Host ""
-
-        $Confirm = Read-Host "GPUpdate auf diesen Computern starten? (J/N)"
-
-        if ($Confirm -notmatch '^(J|JA)$') {
-            Write-Host "Vorgang abgebrochen." -ForegroundColor Yellow
-            return
-        }
 
         # ----------------------------------------------------
         # BENUTZER FÜR REMOTE-GPUPDATE
+        # GILT AUCH BEI EINEM EINZELNEN PC!
         # ----------------------------------------------------
 
         Write-Host ""
-        Write-Host "BENUTZER FÜR REMOTE-GPUPDATE" -ForegroundColor Cyan
-        Write-Host "------------------------------------------------------------"
+        Write-Host "============================================================" -ForegroundColor Cyan
+        Write-Host "             BENUTZER FÜR REMOTE-GPUPDATE" -ForegroundColor Cyan
+        Write-Host "============================================================" -ForegroundColor Cyan
         Write-Host "[1] Aktueller Server-Benutzer"
         Write-Host "[2] Hinterlegter AD-Benutzer"
         Write-Host "[3] Anderen Benutzer angeben"
@@ -871,26 +867,6 @@ function Invoke-RemoteGPUpdate {
 
         $InvokeParams = @{
             ErrorAction = "Stop"
-
-            ScriptBlock = {
-
-                $GpUpdateExe = Join-Path $env:WINDIR "System32\gpupdate.exe"
-
-                Write-Output "Starte GPUpdate auf $env:COMPUTERNAME ..."
-
-                $GpOutput = & $GpUpdateExe /force 2>&1
-                $GpExitCode = $LASTEXITCODE
-
-                foreach ($Line in $GpOutput) {
-                    Write-Output $Line.ToString()
-                }
-
-                if ($GpExitCode -ne 0) {
-                    throw "gpupdate.exe wurde mit Fehlercode $GpExitCode beendet."
-                }
-
-                Write-Output "GPUpdate erfolgreich auf $env:COMPUTERNAME."
-            }
         }
 
         switch ($UserChoice) {
@@ -900,9 +876,6 @@ function Invoke-RemoteGPUpdate {
             "1" {
 
                 $SelectedUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-
-                Write-Host ""
-                Write-Host "Verwendeter Benutzer: $SelectedUser" -ForegroundColor Yellow
             }
 
             # Hinterlegter AD-Benutzer
@@ -924,9 +897,6 @@ function Invoke-RemoteGPUpdate {
                     Write-Host "Kein separates AD-Konto hinterlegt." -ForegroundColor Yellow
                     Write-Host "Verwende angemeldeten Benutzer." -ForegroundColor Green
                 }
-
-                Write-Host ""
-                Write-Host "Verwendeter Benutzer: $SelectedUser" -ForegroundColor Yellow
             }
 
             # Anderer Benutzer
@@ -948,11 +918,7 @@ function Invoke-RemoteGPUpdate {
                 }
 
                 $InvokeParams.Credential = $Credential
-
                 $SelectedUser = $Credential.UserName
-
-                Write-Host ""
-                Write-Host "Verwendeter Benutzer: $SelectedUser" -ForegroundColor Yellow
             }
 
             default {
@@ -960,51 +926,145 @@ function Invoke-RemoteGPUpdate {
             }
         }
 
+        Write-Host ""
+        Write-Host "Verwendeter Benutzer: $SelectedUser" -ForegroundColor Yellow
+
         # ----------------------------------------------------
-        # GPUPDATE AUF ALLEN ZIELCOMPUTERN
+        # PARALLELITÄT FESTLEGEN
         # ----------------------------------------------------
 
-        $Results = @()
-        $Counter = 0
+        $ThrottleLimit = 10
 
-        foreach ($PC in $TargetComputers) {
-
-            $Counter++
+        if ($TargetComputers.Count -gt 1) {
 
             Write-Host ""
-            Write-Host "============================================================" -ForegroundColor Cyan
-            Write-Host "[$Counter/$($TargetComputers.Count)] $PC" -ForegroundColor Cyan
-            Write-Host "============================================================" -ForegroundColor Cyan
+            Write-Host "PARALLELE AUSFÜHRUNG" -ForegroundColor Cyan
+            Write-Host "------------------------------------------------------------"
+            Write-Host "Standardmäßig werden 10 Computer gleichzeitig bearbeitet."
+
+            $ThrottleInput = Read-Host "Maximale gleichzeitige Verbindungen [10]"
+
+            if (-not [string]::IsNullOrWhiteSpace($ThrottleInput)) {
+
+                $ParsedLimit = 0
+
+                if (-not [int]::TryParse($ThrottleInput, [ref]$ParsedLimit)) {
+                    throw "Ungültige Anzahl gleichzeitiger Verbindungen."
+                }
+
+                if ($ParsedLimit -lt 1 -or $ParsedLimit -gt 32) {
+                    throw "Bitte einen Wert zwischen 1 und 32 eingeben."
+                }
+
+                $ThrottleLimit = $ParsedLimit
+            }
+        }
+
+        Write-Host ""
+        Write-Host "Starte GPUpdate auf $($TargetComputers.Count) Computer(n)..." -ForegroundColor Cyan
+        Write-Host "Gleichzeitige Verbindungen: $ThrottleLimit" -ForegroundColor Yellow
+        Write-Host ""
+
+        # ----------------------------------------------------
+        # REMOTE-SCRIPTBLOCK
+        # ----------------------------------------------------
+
+        $RemoteScriptBlock = {
 
             try {
 
-                $RemoteResult = Invoke-Command `
-                    -ComputerName $PC `
-                    @InvokeParams
+                $GpUpdateExe = Join-Path $env:WINDIR "System32\gpupdate.exe"
 
-                foreach ($Line in $RemoteResult) {
-                    Write-Host $Line -ForegroundColor Gray
+                $GpOutput = & $GpUpdateExe /force 2>&1
+                $GpExitCode = $LASTEXITCODE
+
+                $OutputText = @(
+                    $GpOutput | ForEach-Object { $_.ToString() }
+                ) -join "`n"
+
+                if ($GpExitCode -ne 0) {
+
+                    [PSCustomObject]@{
+                        Computer = $env:COMPUTERNAME
+                        Status   = "Fehlgeschlagen"
+                        Ausgabe  = $OutputText
+                        Fehler   = "gpupdate.exe wurde mit Fehlercode $GpExitCode beendet."
+                    }
                 }
+                else {
 
-                Write-Host "Erfolgreich abgeschlossen!" -ForegroundColor Green
-
-                $Results += [PSCustomObject]@{
-                    Computer = $PC
-                    Status   = "Erfolgreich"
-                    Fehler   = ""
+                    [PSCustomObject]@{
+                        Computer = $env:COMPUTERNAME
+                        Status   = "Erfolgreich"
+                        Ausgabe  = $OutputText
+                        Fehler   = ""
+                    }
                 }
             }
             catch {
 
-                $ErrorMessage = $_.Exception.Message
+                [PSCustomObject]@{
+                    Computer = $env:COMPUTERNAME
+                    Status   = "Fehlgeschlagen"
+                    Ausgabe  = ""
+                    Fehler   = $_.Exception.Message
+                }
+            }
+        }
 
-                Write-Host "GPUpdate fehlgeschlagen!" -ForegroundColor Red
-                Write-Host $ErrorMessage -ForegroundColor Yellow
+        # ----------------------------------------------------
+        # PARALLELE AUSFÜHRUNG STARTEN
+        # ----------------------------------------------------
+
+        $InvokeParams.ComputerName = $TargetComputers
+        $InvokeParams.ScriptBlock = $RemoteScriptBlock
+        $InvokeParams.AsJob = $true
+        $InvokeParams.ThrottleLimit = $ThrottleLimit
+
+        $RemoteJob = Invoke-Command @InvokeParams
+
+        Write-Host "GPUpdate wurde auf den Zielcomputern gestartet." -ForegroundColor Green
+        Write-Host "Warte auf Rückmeldungen..." -ForegroundColor Cyan
+        Write-Host ""
+
+        # Auf alle Jobs warten
+        Wait-Job -Job $RemoteJob | Out-Null
+
+        # ----------------------------------------------------
+        # ERGEBNISSE EINSAMMELN
+        # ----------------------------------------------------
+
+        $Results = @()
+
+        foreach ($ChildJob in $RemoteJob.ChildJobs) {
+
+            $RemoteResult = @(
+                Receive-Job -Job $ChildJob -ErrorAction SilentlyContinue
+            ) | Where-Object {
+                $_.PSObject.Properties.Name -contains "Status"
+            } | Select-Object -Last 1
+
+            if ($RemoteResult) {
+
+                $Results += $RemoteResult
+            }
+            else {
+
+                $JobError = ""
+
+                if ($ChildJob.JobStateInfo.Reason) {
+                    $JobError = $ChildJob.JobStateInfo.Reason.Message
+                }
+
+                if ([string]::IsNullOrWhiteSpace($JobError)) {
+                    $JobError = "Keine Rückmeldung erhalten. Verbindungsfehler oder Remote-Ausführung fehlgeschlagen."
+                }
 
                 $Results += [PSCustomObject]@{
-                    Computer = $PC
+                    Computer = $ChildJob.Location
                     Status   = "Fehlgeschlagen"
-                    Fehler   = $ErrorMessage
+                    Ausgabe  = ""
+                    Fehler   = $JobError
                 }
             }
         }
@@ -1022,13 +1082,14 @@ function Invoke-RemoteGPUpdate {
         ).Count
 
         Write-Host ""
-        Write-Host ""
         Write-Host "============================================================" -ForegroundColor Cyan
         Write-Host "                 GPUPDATE ZUSAMMENFASSUNG" -ForegroundColor Cyan
         Write-Host "============================================================" -ForegroundColor Cyan
         Write-Host ""
 
-        $Results | Format-Table Computer, Status, Fehler -Wrap -AutoSize
+        $Results |
+            Select-Object Computer, Status, Fehler |
+            Format-Table -Wrap -AutoSize
 
         Write-Host ""
         Write-Host "Gesamt:          $($TargetComputers.Count)" -ForegroundColor Cyan
@@ -1043,6 +1104,25 @@ function Invoke-RemoteGPUpdate {
         else {
             Write-Host "Einige Computer konnten nicht aktualisiert werden." -ForegroundColor Yellow
         }
+
+        # Detailausgabe optional anzeigen
+        Write-Host ""
+        Write-Host "DETAILAUSGABE" -ForegroundColor Cyan
+        Write-Host "------------------------------------------------------------"
+
+        foreach ($Result in $Results) {
+
+            Write-Host ""
+            Write-Host "$($Result.Computer) - $($Result.Status)" -ForegroundColor Yellow
+
+            if ($Result.Ausgabe) {
+                Write-Host $Result.Ausgabe -ForegroundColor Gray
+            }
+
+            if ($Result.Fehler) {
+                Write-Host $Result.Fehler -ForegroundColor Red
+            }
+        }
     }
     catch {
 
@@ -1051,6 +1131,10 @@ function Invoke-RemoteGPUpdate {
         Write-Host $_.Exception.Message -ForegroundColor Yellow
     }
     finally {
+
+        if ($RemoteJob) {
+            Remove-Job -Job $RemoteJob -Force -ErrorAction SilentlyContinue
+        }
 
         # Nur lokal verwendete Zugangsdaten freigeben.
         # Das globale AdminCredential bleibt erhalten.
