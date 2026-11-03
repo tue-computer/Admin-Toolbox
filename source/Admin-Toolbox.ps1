@@ -76,7 +76,7 @@ try {
         else {
 
             Write-Host "Neue Version gefunden!" -ForegroundColor Yellow
-            Write-Host "Lade Update herunter..." -ForegroundColor Cyan
+            Write-Host "Lade Updates herunter..." -ForegroundColor Cyan
 
             # Temporäre Update-Datei
             $UpdateFile = "$ExePath.update"
