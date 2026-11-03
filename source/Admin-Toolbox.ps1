@@ -762,13 +762,13 @@ do {
     Write-Host "============================================================" -ForegroundColor Cyan
 
     if ($AdminUser) {
-        Write-Host " AD-Konto:     $AdminUser"
+        Write-Host " AD-Konto:     $AdminUser" -ForegroundColor Green
     }
     else {
-        Write-Host " AD-Konto:     Aktueller Benutzer"
+        Write-Host " AD-Konto:     Aktueller Benutzer" -ForegroundColor Green
     }
 
-    Write-Host " Server-Konto: $([Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+    Write-Host " Server-Konto: $([Security.Principal.WindowsIdentity]::GetCurrent().Name)" -ForegroundColor Green
     Write-Host "============================================================" -ForegroundColor Cyan
     Write-Host ""
 
