@@ -553,10 +553,7 @@ function Get-WindowsLapsPassword {
         Write-Host "============================================================" -ForegroundColor Green
         Write-Host ""
 
-        $LapsResult | Format-List *
-
-        Write-Host ""
-        Write-Host "Abfragedauer: $([math]::Round($Stopwatch.Elapsed.TotalSeconds,2)) Sekunden" -ForegroundColor Gray
+        $LapsResult | Format-List ComputerName,Account,Password,PasswordUpdateTime,ExpirationTimestamp
     }
     catch {
         Write-Host ""
