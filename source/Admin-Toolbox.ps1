@@ -1298,7 +1298,33 @@ do {
         }
 
         "55" {
-            Start-MmcTool -Name "DFS-Verwaltung" -SnapIn "dfsmgmt.msc"
+            Write-Host ""
+            Write-Host "DFS-VERWALTUNG STARTEN" -ForegroundColor Cyan
+            Write-Host "------------------------------------------------------------"
+            Write-Host "[1] Mit AD-Benutzer starten"
+            Write-Host "[2] Mit aktuellem Server-Benutzer starten"
+            Write-Host "------------------------------------------------------------"
+
+            $DFSChoice = Read-Host "Auswahl"
+
+            switch ($DFSChoice) {
+
+                "1" {
+                    Start-MmcTool -Name "DFS-Verwaltung" `
+                        -SnapIn "dfsmgmt.msc" `
+                        -UseADCredentials $true
+                }
+
+                "2" {
+                    Start-MmcTool -Name "DFS-Verwaltung" `
+                        -SnapIn "dfsmgmt.msc"
+                }
+
+                default {
+                    Write-Host "Ungültige Auswahl!" -ForegroundColor Red
+                    Start-Sleep -Seconds 1
+                }
+            }
         }
 
         "80" {
