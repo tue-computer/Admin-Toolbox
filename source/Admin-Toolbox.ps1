@@ -1219,7 +1219,7 @@ do {
     Write-Host ""
 
     Write-Host " SERVER/NETZWERK" -ForegroundColor Cyan
-    Write-Host " [60] IP-Konfiguration                [61] Windows Firewall (lokal)"
+    Write-Host " [60] IP-Konfiguration (lokal)        [61] Windows Firewall (lokal)"
     Write-Host " [62] Computer-Zertifikate (lokal)    [63] Benutzer-Zertifikate (lokal)"
     Write-Host " [64] WMI-Verwaltung"
     Write-Host ""
@@ -1324,33 +1324,25 @@ do {
         }
 
         "42" {
-            $TargetPC = (Read-Host "Ziel-PC eingeben").Trim()
-            $TargetUser = (Read-Host "Benutzer (DOMÄNE\Benutzer)").Trim()
+            $RsopConsole = Join-Path $PSScriptRoot "RSOP-Remote.msc"
 
-            if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
-                $RsopPath = Join-Path $System32 "rsop.msc"
-                $RsopArguments = "/computer:$TargetPC"
-
-                if (-not [string]::IsNullOrWhiteSpace($TargetUser)) {
-                    $RsopArguments += " /user:$TargetUser"
-                }
-
-                Start-AdminProcess -Name "Richtlinienergebnis (RSOP)" `
+            if (Test-Path $RsopConsole) {
+                Start-AdminProcess -Name "RSOP-Assistent" `
                     -File $MMC `
-                    -Arguments "`"$RsopPath`" $RsopArguments"
+                    -Arguments "`"$RsopConsole`""
+            }
+            else {
+                Write-Host "RSOP-Konsole wurde nicht gefunden: $RsopConsole" -ForegroundColor Red
+                Read-Host "Enter drücken"
             }
         }
-
  
         "43" {
-            Clear-Host
-
-            Write-Host ""
-            Write-Host "GPRESULT – REMOTE-RICHTLINIENERGEBNIS" -ForegroundColor Cyan
-            Write-Host "============================================================"
-
             $TargetPC = (Read-Host "Ziel-PC eingeben").Trim()
             $TargetUser = (Read-Host "Benutzer (DOMÄNE\Benutzer)").Trim()
+            Clear-Host
+
+            Write-Host "GPRESULT – REMOTE-RICHTLINIENERGEBNIS" -ForegroundColor Cyan
 
             if (-not [string]::IsNullOrWhiteSpace($TargetPC) -and
                 -not [string]::IsNullOrWhiteSpace($TargetUser)) {
@@ -1456,32 +1448,23 @@ do {
         }
 
         "54" {
-            $TargetPC = (Read-Host "Ziel-PC eingeben").Trim()
-
-            if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
-                Start-MmcTool -Name "Leistungsüberwachung" -SnapIn "perfmon.msc"
-
-                Write-Host ""
-                Write-Host "In der Leistungsüberwachung verbinden mit:" -ForegroundColor Cyan
-                Write-Host $TargetPC -ForegroundColor Yellow
-                Write-Host "Dazu im Leistungsüberwachungsfenster den Zielcomputer auswählen."
-            }
+            Start-MmcTool -Name "Leistungsüberwachung" -SnapIn "perfmon.msc"
         }
 
         "55" {
-            Clear-Host
             $TargetPC = (Read-Host "Ziel-PC eingeben").Trim()
+            Clear-Host
 
             if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
                 try {
-                    Write-Host ""
+                    Write-Host "------------------------------------------------------------"
                     Write-Host "REMOTE-PROZESSÜBERSICHT: $TargetPC" -ForegroundColor Cyan
                     Write-Host "------------------------------------------------------------"
 
                     Get-CimInstance -ClassName Win32_Process -ComputerName $TargetPC -ErrorAction Stop |
                         Sort-Object WorkingSetSize -Descending |
                         Select-Object -First 20 ProcessId, Name,
-                            @{Name="RAM (MB)";Expression={[math]::Round($_.WorkingSetSize / 1MB, 2)}} |
+                            @{Name="RAM (MB)";Expression={[math]::Round($_.WorkingSetSize / 1MB, 0)}} |
                         Format-Table -AutoSize
                 }
                 catch {
@@ -1512,11 +1495,11 @@ do {
             $CmdPath = Join-Path $System32 "cmd.exe"
 
             switch ($IPChoice) {
-                "1" { Start-AdminProcess -Name "IP-Konfiguration" -File $CmdPath -Arguments "/k `"$IpConfigPath`" /all" -UseADCredentials $true }
-                "2" { Start-AdminProcess -Name "DNS-Cache leeren" -File $CmdPath -Arguments "/k `"$IpConfigPath`" /flushdns" -UseADCredentials $true }
-                "3" { Start-AdminProcess -Name "DNS-Registrierung" -File $CmdPath -Arguments "/k `"$IpConfigPath`" /registerdns" -UseADCredentials $true }
-                "4" { Start-AdminProcess -Name "IP-Adresse erneuern" -File $CmdPath -Arguments "/k `"$IpConfigPath`" /renew" -UseADCredentials $true }
-                "5" { Start-AdminProcess -Name "DNS-Cache" -File $CmdPath -Arguments "/k `"$IpConfigPath`" /displaydns" -UseADCredentials $true }
+                "1" { Start-AdminProcess -Name "IP-Konfiguration" -File $CmdPath -Arguments "/k `"$IpConfigPath`" /all"}
+                "2" { Start-AdminProcess -Name "DNS-Cache leeren" -File $CmdPath "`"$IpConfigPath`" /flushdns"}
+                "3" { Start-AdminProcess -Name "DNS-Registrierung" -File $CmdPath "`"$IpConfigPath`" /registerdns"}
+                "4" { Start-AdminProcess -Name "IP-Adresse erneuern" -File $CmdPath "-Arguments "/k "`"$IpConfigPath`" /renew"}
+                "5" { Start-AdminProcess -Name "DNS-Cache" -File $CmdPath -Arguments "/k `"$IpConfigPath`" /displaydns"}
 
                 default {
                     Write-Host "Ungültige Auswahl!" -ForegroundColor Red
@@ -1526,31 +1509,11 @@ do {
         }
 
         "61" {
-            $TargetPC = (Read-Host "Ziel-PC eingeben").Trim()
-
-            if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
-                Start-MmcTool -Name "Windows Defender Firewall" -SnapIn "wf.msc"
-
-                Write-Host ""
-                Write-Host "In der Firewall-Verwaltung verbinden mit:" -ForegroundColor Cyan
-                Write-Host $TargetPC -ForegroundColor Yellow
-                Write-Host "Dazu links den obersten Firewall-Knoten rechts anklicken und"
-                Write-Host "'Mit anderem Computer verbinden' auswählen."
-            }
+            Start-MmcTool -Name "Windows Defender Firewall" -SnapIn "wf.msc"
         }
 
         "62" {
-            $TargetPC = (Read-Host "Ziel-PC eingeben").Trim()
-
-            if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
-                Start-MmcTool -Name "Zertifikate (Computer)" -SnapIn "certlm.msc"
-
-                Write-Host ""
-                Write-Host "Zielcomputer: $TargetPC" -ForegroundColor Yellow
-                Write-Host "Im Zertifikate-Snap-In:"
-                Write-Host "Datei -> Snap-In hinzufügen/entfernen"
-                Write-Host "Zertifikate -> Computerkonto -> Anderer Computer"
-            }
+            Start-MmcTool -Name "Zertifikate (Computer)" -SnapIn "certlm.msc"
         }
 
         "63" {
@@ -1558,17 +1521,7 @@ do {
         }
 
         "64" {
-            $TargetPC = (Read-Host "Ziel-PC eingeben").Trim()
-
-            if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
-                Start-MmcTool -Name "WMI-Verwaltung" -SnapIn "wmimgmt.msc"
-
-                Write-Host ""
-                Write-Host "In der WMI-Verwaltung verbinden mit:" -ForegroundColor Cyan
-                Write-Host $TargetPC -ForegroundColor Yellow
-                Write-Host "Dazu 'WMI-Steuerung (Lokal)' rechts anklicken und"
-                Write-Host "'Mit anderem Computer verbinden' auswählen."
-            }
+            Start-MmcTool -Name "WMI-Verwaltung" -SnapIn "wmimgmt.msc"
         }
 
         # ----------------------------------------------------
