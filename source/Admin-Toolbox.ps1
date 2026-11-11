@@ -1196,39 +1196,37 @@ do {
     Write-Host ""
 
     Write-Host " ACTIVE DIRECTORY" -ForegroundColor Cyan
-    Write-Host " [10] Benutzer und Computer     [11] PowerShell"
-    Write-Host " [12] Verwaltungscenter         [13] Standorte und Dienste"
-    Write-Host " [14] Domänen und Vertrauensst. [15] ADSI-Editor"
-    Write-Host " [16] Replikation               [17] Diagnose"
+    Write-Host " [10] Benutzer und Computer           [11] PowerShell"
+    Write-Host " [12] Verwaltungscenter               [13] Standorte und Dienste"
+    Write-Host " [14] Domänen und Vertrauensst.       [15] ADSI-Editor"
+    Write-Host " [16] Replikation                     [17] Diagnose"
     Write-Host ""
 
     Write-Host " DNS & DHCP" -ForegroundColor Cyan
-    Write-Host " [30] DNS-Verwaltung            [31] DHCP-Verwaltung"
+    Write-Host " [30] DNS-Verwaltung                  [31] DHCP-Verwaltung"
     Write-Host ""
 
     Write-Host " GRUPPENRICHTLINIEN" -ForegroundColor Cyan
-    Write-Host " [40] GPO-Verwaltung            [41] Remote-GPUpdate"
-    Write-Host " [42] Ergebnis (RSOP)           [43] Ergebnis (GPResult)"
-    Write-Host " [44] Lokale Sicherheitsrichtlinie"
+    Write-Host " [40] GPO-Verwaltung                  [41] Remote-GPUpdate"
+    Write-Host " [42] Ergebnis (RSOP)                 [43] Ergebnis (GPResult)"
+    Write-Host " [44] Sicherheitsrichtlinie (lokal)"
     Write-Host ""
 
     Write-Host " SERVER/VERWALTUNG" -ForegroundColor Cyan
-    Write-Host " [50] Server-Manager            [51] Computerverwaltung"
-    Write-Host " [52] Ereignisanzeige           [53] Druckverwaltung"
-    Write-Host " [54] Diensteverwaltung         [55] Datenträgerverwaltung"
-    Write-Host " [56] Geräte-Manager            [57] Aufgabenplanung"
-    Write-Host " [58] Leistungsüberwachung      [59] Ressourcenmonitor"
+    Write-Host " [50] Server-Manager                  [51] Computerverwaltung"
+    Write-Host " [52] Ereignisanzeige                 [53] Druckverwaltung"
+    Write-Host " [54] Leistungsüberwachung            [55] Remote-Prozesse"
     Write-Host ""
 
     Write-Host " SERVER/NETZWERK" -ForegroundColor Cyan
-    Write-Host " [60] IP-Konfiguration          [61] Windows Defender Firewall"
-    Write-Host " [62] Zertifikate (Computer)    [63] Zertifikate (Benutzer)"
+    Write-Host " [60] IP-Konfiguration                [61] Windows Firewall (lokal)"
+    Write-Host " [62] Computer-Zertifikate (lokal)    [63] Benutzer-Zertifikate (lokal)"
     Write-Host " [64] WMI-Verwaltung"
     Write-Host ""
 
     Write-Host " SERVER/DIENSTE" -ForegroundColor Cyan
-    Write-Host " [70] Hyper-V-Manager           [71] Failover-Cluster-Manager"
-    Write-Host " [72] DFS-Verwaltung            [73] IIS-Verwaltung"
+    Write-Host " [70] Hyper-V-Manager                 [71] Failover-Cluster-Manager"
+    Write-Host " [72] DFS-Verwaltung                  [73] IIS-Verwaltung"
     Write-Host ""
 
     Write-Host " SICHERHEIT" -ForegroundColor Cyan
@@ -1277,8 +1275,17 @@ do {
         }
 
         "17" {
-            $DcdiagPath = Join-Path $System32 "dcdiag.exe"
-            Start-AdminProcess -Name "AD-Diagnose" -File (Join-Path $System32 "cmd.exe") -Arguments "/k `"$DcdiagPath`" /q" -UseADCredentials $true
+            $DomainController = (Read-Host "Domänen-Controller").Trim()
+
+            if (-not [string]::IsNullOrWhiteSpace($DomainController)) {
+                $DcdiagPath = Join-Path $System32 "dcdiag.exe"
+                $CmdPath = Join-Path $System32 "cmd.exe"
+
+                Start-AdminProcess -Name "AD-Diagnose" `
+                    -File $CmdPath `
+                    -Arguments "/k `"$DcdiagPath`" /s:$DomainController /q" `
+                    -UseADCredentials $true
+            }
         }
 
         # ----------------------------------------------------
@@ -1317,27 +1324,77 @@ do {
         }
 
         "42" {
-            Start-MmcTool -Name "Richtlinienergebnis (RSOP)" -SnapIn "rsop.msc"
+            $TargetPC = (Read-Host "Ziel-PC eingeben").Trim()
+            $TargetUser = (Read-Host "Benutzer (DOMÄNE\Benutzer)").Trim()
+
+            if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
+                $RsopPath = Join-Path $System32 "rsop.msc"
+                $RsopArguments = "/computer:$TargetPC"
+
+                if (-not [string]::IsNullOrWhiteSpace($TargetUser)) {
+                    $RsopArguments += " /user:$TargetUser"
+                }
+
+                Start-AdminProcess -Name "Richtlinienergebnis (RSOP)" `
+                    -File $MMC `
+                    -Arguments "`"$RsopPath`" $RsopArguments"
+            }
         }
 
+ 
         "43" {
-            $ReportPath = Join-Path $env:TEMP "GPResult.html"
-            $GpResultPath = Join-Path $System32 "gpresult.exe"
-
-            & $GpResultPath /h $ReportPath /f
+            Clear-Host
 
             Write-Host ""
-            Write-Host "GPResult Exit-Code: $LASTEXITCODE"
+            Write-Host "GPRESULT – REMOTE-RICHTLINIENERGEBNIS" -ForegroundColor Cyan
+            Write-Host "============================================================"
 
-            if (Test-Path $ReportPath) {
-                Start-Process $ReportPath
-            }
-            else {
-                Write-Host "Der GPResult-Bericht wurde nicht erstellt." -ForegroundColor Red
+            $TargetPC = (Read-Host "Ziel-PC eingeben").Trim()
+            $TargetUser = (Read-Host "Benutzer (DOMÄNE\Benutzer)").Trim()
+
+            if (-not [string]::IsNullOrWhiteSpace($TargetPC) -and
+                -not [string]::IsNullOrWhiteSpace($TargetUser)) {
+
+                $SafeTargetPC = $TargetPC -replace '[\\/:*?"<>|]', '_'
+                $ReportPath = Join-Path $env:TEMP "GPResult_$SafeTargetPC.html"
+                $GpResultPath = Join-Path $System32 "gpresult.exe"
+
+                Write-Host ""
+                Write-Host "Computer: $TargetPC"
+                Write-Host "Benutzer: $TargetUser"
+                Write-Host ""
+                Write-Host "Erstelle Gruppenrichtlinienbericht ..." -ForegroundColor Yellow
+
+                $Arguments = "/s $TargetPC /user `"$TargetUser`" /h `"$ReportPath`" /f"
+
+                try {
+                    $Process = Start-Process -FilePath $GpResultPath `
+                        -ArgumentList $Arguments `
+                        -PassThru `
+                        -Wait `
+                        -ErrorAction Stop
+
+                    if ($Process.ExitCode -eq 0 -and (Test-Path $ReportPath)) {
+                        Write-Host ""
+                        Write-Host "Bericht wurde erfolgreich erstellt." -ForegroundColor Green
+                        Start-Process $ReportPath
+                    }
+                    else {
+                        Write-Host ""
+                        Write-Host "GPResult konnte den Bericht nicht erstellen." -ForegroundColor Red
+                        Write-Host "Exit-Code: $($Process.ExitCode)" -ForegroundColor Yellow
+                    }
+                }
+                catch {
+                    Write-Host ""
+                    Write-Host "Fehler beim Ausführen von GPResult: $($_.Exception.Message)" -ForegroundColor Red
+                }
             }
 
-            Read-Host "Enter drücken, um fortzufahren"
+            Write-Host ""
+            Read-Host "Enter drücken, um zum Hauptmenü zurückzukehren"
         }
+
 
         "44" {
             Start-MmcTool -Name "Lokale Sicherheitsrichtlinie" -SnapIn "secpol.msc"
@@ -1399,22 +1456,6 @@ do {
         }
 
         "54" {
-            Start-MmcTool -Name "Diensteverwaltung" -SnapIn "services.msc"
-        }
-
-        "55" {
-            Start-MmcTool -Name "Datenträgerverwaltung" -SnapIn "diskmgmt.msc"
-        }
-
-        "56" {
-            Start-MmcTool -Name "Geräte-Manager" -SnapIn "devmgmt.msc"
-        }
-
-        "57" {
-            Start-MmcTool -Name "Aufgabenplanung" -SnapIn "taskschd.msc"
-        }
-
-        "58" {
             $TargetPC = (Read-Host "Ziel-PC eingeben").Trim()
 
             if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
@@ -1427,7 +1468,8 @@ do {
             }
         }
 
-        "59" {
+        "55" {
+            Clear-Host
             $TargetPC = (Read-Host "Ziel-PC eingeben").Trim()
 
             if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
