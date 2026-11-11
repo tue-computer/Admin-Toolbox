@@ -1326,7 +1326,6 @@ do {
             Start-AdminProcess -Name "Richtlinienergebnis (RSOP)" `
                 -File (Join-Path $System32 "mmc.exe") `
                 -Arguments "`"$(Join-Path $System32 'rsop.msc')`""
-        }
 
             Write-Host ""
             Read-Host "Enter drücken, um zum Hauptmenü zurückzukehren"
@@ -1491,9 +1490,9 @@ do {
 
             switch ($IPChoice) {
                 "1" { Start-AdminProcess -Name "IP-Konfiguration" -File $CmdPath -Arguments "/k `"$IpConfigPath`" /all"}
-                "2" { Start-AdminProcess -Name "DNS-Cache leeren" -File $CmdPath "`"$IpConfigPath`" /flushdns"}
-                "3" { Start-AdminProcess -Name "DNS-Registrierung" -File $CmdPath "`"$IpConfigPath`" /registerdns"}
-                "4" { Start-AdminProcess -Name "IP-Adresse erneuern" -File $CmdPath "-Arguments "/k "`"$IpConfigPath`" /renew"}
+                "2" { Start-AdminProcess -Name "DNS-Cache leeren" -File $CmdPath -Arguments "/c `"$IpConfigPath`" /flushdns" }
+                "3" { Start-AdminProcess -Name "DNS-Registrierung" -File $CmdPath -Arguments "/c `"$IpConfigPath`" /registerdns" }
+                "4" { Start-AdminProcess -Name "IP-Adresse erneuern" -File $CmdPath -Arguments "/k `"$IpConfigPath`" /renew" }
                 "5" { Start-AdminProcess -Name "DNS-Cache" -File $CmdPath -Arguments "/k `"$IpConfigPath`" /displaydns"}
 
                 default {
