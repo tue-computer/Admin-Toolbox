@@ -1324,17 +1324,38 @@ do {
         }
 
         "42" {
-            $RsopConsole = Join-Path $PSScriptRoot "RSOP-Remote.msc"
+            $TargetPC = (Read-Host "Ziel-PC eingeben").Trim()
+            $TargetUser = (Read-Host "Benutzer (DOMÄNE\Benutzer)").Trim()
 
-            if (Test-Path $RsopConsole) {
-                Start-AdminProcess -Name "RSOP-Assistent" `
-                    -File $MMC `
-                    -Arguments "`"$RsopConsole`""
+            if ([string]::IsNullOrWhiteSpace($TargetPC) -or
+                [string]::IsNullOrWhiteSpace($TargetUser)) {
+                Write-Host "PC und Benutzer müssen angegeben werden." -ForegroundColor Red
             }
             else {
-                Write-Host "RSOP-Konsole wurde nicht gefunden: $RsopConsole" -ForegroundColor Red
-                Read-Host "Enter drücken"
+                try {
+                    Import-Module GroupPolicy -ErrorAction Stop
+
+                    $SafeTargetPC = $TargetPC -replace '[\\/:*?"<>|]', '_'
+                    $ReportPath = Join-Path $env:TEMP "RSOP_$SafeTargetPC.html"
+
+                    Get-GPResultantSetOfPolicy `
+                        -Computer $TargetPC `
+                        -User $TargetUser `
+                        -ReportType Html `
+                        -Path $ReportPath `
+                        -ErrorAction Stop
+
+                    if (Test-Path $ReportPath) {
+                        Start-Process $ReportPath
+                    }
+                }
+                catch {
+                    Write-Host "RSOP-Auswertung fehlgeschlagen: $($_.Exception.Message)" -ForegroundColor Red
+                }
             }
+
+            Write-Host ""
+            Read-Host "Enter drücken, um zum Hauptmenü zurückzukehren"
         }
  
         "43" {
