@@ -1197,7 +1197,9 @@ do {
 
     Write-Host " ACTIVE DIRECTORY" -ForegroundColor Cyan
     Write-Host " [10] Benutzer und Computer     [11] PowerShell"
-    Write-Host " [12] Verwaltungscenter"
+    Write-Host " [12] Verwaltungscenter         [13] Standorte und Dienste"
+    Write-Host " [14] Domänen und Vertrauensst. [15] ADSI-Editor"
+    Write-Host " [16] Replikation               [17] Diagnose"
     Write-Host ""
 
     Write-Host " DNS & DHCP" -ForegroundColor Cyan
@@ -1206,12 +1208,27 @@ do {
 
     Write-Host " GRUPPENRICHTLINIEN" -ForegroundColor Cyan
     Write-Host " [40] GPO-Verwaltung            [41] Remote-GPUpdate"
+    Write-Host " [42] Ergebnis (RSOP)           [43] Ergebnis (GPResult)"
+    Write-Host " [44] Lokale Sicherheitsrichtlinie"
     Write-Host ""
 
-    Write-Host " SERVER" -ForegroundColor Cyan
-    Write-Host " [50] Computerverwaltung        [51] Ereignisanzeige"
-    Write-Host " [52] Server-Manager            [53] Druckverwaltung"
-    Write-Host " [54] Hyper-V-Manager           [55] DFS-Verwaltung"
+    Write-Host " SERVER/VERWALTUNG" -ForegroundColor Cyan
+    Write-Host " [50] Server-Manager            [51] Computerverwaltung"
+    Write-Host " [52] Ereignisanzeige           [53] Druckverwaltung"
+    Write-Host " [54] Diensteverwaltung         [55] Datenträgerverwaltung"
+    Write-Host " [56] Geräte-Manager            [57] Aufgabenplanung"
+    Write-Host " [58] Leistungsüberwachung      [59] Ressourcenmonitor"
+    Write-Host ""
+
+    Write-Host " SERVER/NETZWERK" -ForegroundColor Cyan
+    Write-Host " [60] IP-Konfiguration          [61] Windows Defender Firewall"
+    Write-Host " [62] Zertifikate (Computer)    [63] Zertifikate (Benutzer)"
+    Write-Host " [64] WMI-Verwaltung"
+    Write-Host ""
+
+    Write-Host " SERVER/DIENSTE" -ForegroundColor Cyan
+    Write-Host " [70] Hyper-V-Manager           [71] Failover-Cluster-Manager"
+    Write-Host " [72] DFS-Verwaltung            [73] IIS-Verwaltung"
     Write-Host ""
 
     Write-Host " SICHERHEIT" -ForegroundColor Cyan
@@ -1225,6 +1242,11 @@ do {
     $Auswahl = Read-Host
 
     switch ($Auswahl) {
+
+        # ----------------------------------------------------
+        # ACTIVE DIRECTORY
+        # ----------------------------------------------------
+
         "10" {
             Start-MmcTool -Name "Benutzer und Computer" -SnapIn "dsa.msc" -UseADCredentials $true
         }
@@ -1232,10 +1254,34 @@ do {
         "11" {
             Start-AdminProcess -Name "PowerShell" -File $PowerShellExe -Arguments '-NoExit -Command "Import-Module ActiveDirectory"' -UseADCredentials $true
         }
-        
+
         "12" {
-            Start-AdminProcess -Name "Verwaltungscenter" -File "dsac.exe" -UseADCredentials $true
+            Start-AdminProcess -Name "Verwaltungscenter" -File (Join-Path $System32 "dsac.exe") -UseADCredentials $true
         }
+
+        "13" {
+            Start-MmcTool -Name "Standorte und Dienste" -SnapIn "dssite.msc" -UseADCredentials $true
+        }
+
+        "14" {
+            Start-MmcTool -Name "Domänen und Vertrauensstellungen" -SnapIn "domain.msc" -UseADCredentials $true
+        }
+
+        "15" {
+            Start-MmcTool -Name "ADSI-Editor" -SnapIn "adsiedit.msc" -UseADCredentials $true
+        }
+
+        "16" {
+            Start-AdminProcess -Name "AD-Replikation" -File (Join-Path $System32 "repadmin.exe") -Arguments "/replsummary"
+        }
+
+        "17" {
+            Start-AdminProcess -Name "AD-Diagnose" -File (Join-Path $System32 "dcdiag.exe") -Arguments "/q"
+        }
+
+        # ----------------------------------------------------
+        # DNS & DHCP
+        # ----------------------------------------------------
 
         "30" {
             $DnsServer = (Read-Host "DNS-Server eingeben").Trim()
@@ -1255,6 +1301,10 @@ do {
             }
         }
 
+        # ----------------------------------------------------
+        # GRUPPENRICHTLINIEN
+        # ----------------------------------------------------
+
         "40" {
             $GpoPath = Join-Path $System32 "gpmc.msc"
             Start-AdminProcess -Name "Gruppenrichtlinienverwaltung" -File $MMC -Arguments "`"$GpoPath`"" -UseADCredentials $true
@@ -1264,25 +1314,33 @@ do {
             Invoke-RemoteGPUpdate
         }
 
+        "42" {
+            Start-MmcTool -Name "Richtlinienergebnis (RSOP)" -SnapIn "rsop.msc"
+        }
+
+        "43" {
+            $ReportPath = Join-Path $env:TEMP "GPResult.html"
+
+            Start-AdminProcess -Name "GPResult" `
+                -File (Join-Path $System32 "gpresult.exe") `
+                -Arguments "/h `"$ReportPath`" /f"
+
+            Start-Sleep -Seconds 2
+
+            if (Test-Path $ReportPath) {
+                Start-Process $ReportPath
+            }
+        }
+
+        "44" {
+            Start-MmcTool -Name "Lokale Sicherheitsrichtlinie" -SnapIn "secpol.msc"
+        }
+
+        # ----------------------------------------------------
+        # SERVER/VERWALTUNG
+        # ----------------------------------------------------
+
         "50" {
-            $TargetPC = (Read-Host "Ziel-PC eingeben").Trim()
-
-            if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
-                $SnapInPath = Join-Path $System32 "compmgmt.msc"
-                Start-AdminProcess -Name "Computerverwaltung" -File $MMC -Arguments "`"$SnapInPath`" /computer=$TargetPC"
-            }
-        }
-
-        "51" {
-            $TargetPC = (Read-Host "Ziel-PC").Trim()
-
-            if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
-                $EventViewerExe = Join-Path $System32 "eventvwr.exe"
-                Start-AdminProcess -Name "Ereignisanzeige" -File $EventViewerExe -Arguments $TargetPC
-            }
-        }
-
-        "52" {
             Write-Host ""
             Write-Host "SERVER-MANAGER STARTEN" -ForegroundColor Cyan
             Write-Host "------------------------------------------------------------"
@@ -1309,17 +1367,114 @@ do {
                     Start-Sleep -Seconds 1
                 }
             }
-        }   
+        }
+
+        "51" {
+            $TargetPC = (Read-Host "Ziel-PC eingeben").Trim()
+
+            if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
+                $SnapInPath = Join-Path $System32 "compmgmt.msc"
+                Start-AdminProcess -Name "Computerverwaltung" -File $MMC -Arguments "`"$SnapInPath`" /computer=$TargetPC"
+            }
+        }
+
+        "52" {
+            $TargetPC = (Read-Host "Ziel-PC").Trim()
+
+            if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
+                $EventViewerExe = Join-Path $System32 "eventvwr.exe"
+                Start-AdminProcess -Name "Ereignisanzeige" -File $EventViewerExe -Arguments $TargetPC
+            }
+        }
 
         "53" {
             Start-MmcTool -Name "Druckverwaltung" -SnapIn "printmanagement.msc"
         }
 
         "54" {
-            Start-MmcTool -Name "Hyper-V-Manager" -SnapIn "virtmgmt.msc"
+            Start-MmcTool -Name "Diensteverwaltung" -SnapIn "services.msc"
         }
 
         "55" {
+            Start-MmcTool -Name "Datenträgerverwaltung" -SnapIn "diskmgmt.msc"
+        }
+
+        "56" {
+            Start-MmcTool -Name "Geräte-Manager" -SnapIn "devmgmt.msc"
+        }
+
+        "57" {
+            Start-MmcTool -Name "Aufgabenplanung" -SnapIn "taskschd.msc"
+        }
+
+        "58" {
+            Start-MmcTool -Name "Leistungsüberwachung" -SnapIn "perfmon.msc"
+        }
+
+        "59" {
+            Start-AdminProcess -Name "Ressourcenmonitor" -File (Join-Path $System32 "resmon.exe")
+        }
+
+        # ----------------------------------------------------
+        # SERVER/NETZWERK
+        # ----------------------------------------------------
+
+        "60" {
+            Write-Host ""
+            Write-Host "IP-KONFIGURATION" -ForegroundColor Cyan
+            Write-Host "------------------------------------------------------------"
+            Write-Host "[1] IP-Konfiguration anzeigen"
+            Write-Host "[2] DNS-Cache leeren"
+            Write-Host "[3] DNS-Registrierung"
+            Write-Host "[4] IP-Adresse erneuern"
+            Write-Host "[5] DNS-Cache anzeigen"
+            Write-Host "------------------------------------------------------------"
+
+            $IPChoice = Read-Host "Auswahl"
+
+            switch ($IPChoice) {
+                "1" { Start-AdminProcess -Name "IP-Konfiguration" -File (Join-Path $System32 "ipconfig.exe") -Arguments "/all" }
+                "2" { Start-AdminProcess -Name "DNS-Cache leeren" -File (Join-Path $System32 "ipconfig.exe") -Arguments "/flushdns" }
+                "3" { Start-AdminProcess -Name "DNS-Registrierung" -File (Join-Path $System32 "ipconfig.exe") -Arguments "/registerdns" }
+                "4" { Start-AdminProcess -Name "IP-Adresse erneuern" -File (Join-Path $System32 "ipconfig.exe") -Arguments "/renew" }
+                "5" { Start-AdminProcess -Name "DNS-Cache" -File (Join-Path $System32 "ipconfig.exe") -Arguments "/displaydns" }
+
+                default {
+                    Write-Host "Ungültige Auswahl!" -ForegroundColor Red
+                    Start-Sleep -Seconds 1
+                }
+            }
+        }
+
+        "61" {
+            Start-MmcTool -Name "Windows Defender Firewall" -SnapIn "wf.msc"
+        }
+
+        "62" {
+            Start-MmcTool -Name "Zertifikate (Computer)" -SnapIn "certlm.msc"
+        }
+
+        "63" {
+            Start-MmcTool -Name "Zertifikate (Benutzer)" -SnapIn "certmgr.msc"
+        }
+
+        "64" {
+            Start-MmcTool -Name "WMI-Verwaltung" -SnapIn "wmimgmt.msc"
+        }
+
+        # ----------------------------------------------------
+        # SERVER/DIENSTE
+        # ----------------------------------------------------
+
+        "70" {
+            Start-MmcTool -Name "Hyper-V-Manager" -SnapIn "virtmgmt.msc"
+        }
+
+        "71" {
+            Start-MmcTool -Name "Failover-Cluster-Manager" -SnapIn "CluAdmin.msc"
+        }
+
+        "72" {
             Write-Host ""
             Write-Host "DFS-VERWALTUNG STARTEN" -ForegroundColor Cyan
             Write-Host "------------------------------------------------------------"
@@ -1330,7 +1485,6 @@ do {
             $DFSChoice = Read-Host "Auswahl"
 
             switch ($DFSChoice) {
-
                 "1" {
                     Start-MmcTool -Name "DFS-Verwaltung" `
                         -SnapIn "dfsmgmt.msc" `
@@ -1348,6 +1502,15 @@ do {
                 }
             }
         }
+
+        "73" {
+            $IISPath = Join-Path $env:windir "System32\inetsrv\InetMgr.exe"
+            Start-AdminProcess -Name "IIS-Verwaltung" -File $IISPath
+        }
+
+        # ----------------------------------------------------
+        # SICHERHEIT
+        # ----------------------------------------------------
 
         "80" {
             $TargetPC = (Read-Host "PC-Name").Trim()
