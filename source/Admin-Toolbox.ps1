@@ -1180,6 +1180,7 @@ do {
 
     Write-Host " ACTIVE DIRECTORY" -ForegroundColor Cyan
     Write-Host " [10] Benutzer und Computer     [11] PowerShell"
+    Write-Host " [12] Verwaltungscenter"
     Write-Host ""
 
     Write-Host " DNS & DHCP" -ForegroundColor Cyan
@@ -1213,6 +1214,10 @@ do {
 
         "11" {
             Start-AdminProcess -Name "PowerShell" -File $PowerShellExe -Arguments '-NoExit -Command "Import-Module ActiveDirectory"' -UseADCredentials $true
+        }
+        
+        "12" {
+            Start-AdminProcess -Name "Verwaltungscenter" -File "dsac.exe" -UseADCredentials $true
         }
 
         "30" {
