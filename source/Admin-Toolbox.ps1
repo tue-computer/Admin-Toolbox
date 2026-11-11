@@ -1402,7 +1402,7 @@ do {
 
             switch ($ServerManagerChoice) {
                 "1" {
-                    Start-AdminProcess -Name "Server-Manager" `
+                    Start-AdminProcess -Name "Server-Manager (AD-Benutzer)" `
                         -File (Join-Path $System32 "ServerManager.exe") `
                         -UseADCredentials $true
                 }
