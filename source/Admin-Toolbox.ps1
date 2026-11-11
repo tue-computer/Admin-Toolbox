@@ -1179,9 +1179,9 @@ do {
     Clear-Host
 
     Write-Host ""
-    Write-Host "============================================================" -ForegroundColor Cyan
-    Write-Host "                    Admin-Toolbox" -ForegroundColor Cyan
-    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host "============================================================================" -ForegroundColor Cyan
+    Write-Host "                               Admin-Toolbox" -ForegroundColor Cyan
+    Write-Host "============================================================================" -ForegroundColor Cyan
 
     if ($AdminUser) {
         Write-Host " AD-Konto:     $AdminUser" -ForegroundColor Green
@@ -1191,7 +1191,7 @@ do {
     }
 
     Write-Host " Server-Konto: $([Security.Principal.WindowsIdentity]::GetCurrent().Name)" -ForegroundColor Green
-    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host "============================================================================" -ForegroundColor Cyan
     Write-Host ""
 
     Write-Host " ACTIVE DIRECTORY" -ForegroundColor Cyan
