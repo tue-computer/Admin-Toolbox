@@ -1207,8 +1207,8 @@ do {
     Write-Host ""
 
     Write-Host " GRUPPENRICHTLINIEN" -ForegroundColor Cyan
-    Write-Host " [40] GPO-Verwaltung                  [41] Remote-GPUpdate"
-    Write-Host " [42] Ergebnis (RSOP)                 [43] Ergebnis (GPResult)"
+    Write-Host " [40] Verwaltung                       [41] Client-Update"
+    Write-Host " [42] Richtlinienergebnis (lokal)      [43] Richtlinienergebnis (remote)"
     Write-Host " [44] Sicherheitsrichtlinie (lokal)"
     Write-Host ""
 
@@ -1324,35 +1324,10 @@ do {
         }
 
         "42" {
-            $TargetPC = (Read-Host "Ziel-PC eingeben").Trim()
-            $TargetUser = (Read-Host "Benutzer (DOMÄNE\Benutzer)").Trim()
-
-            if ([string]::IsNullOrWhiteSpace($TargetPC) -or
-                [string]::IsNullOrWhiteSpace($TargetUser)) {
-                Write-Host "PC und Benutzer müssen angegeben werden." -ForegroundColor Red
-            }
-            else {
-                try {
-                    Import-Module GroupPolicy -ErrorAction Stop
-
-                    $SafeTargetPC = $TargetPC -replace '[\\/:*?"<>|]', '_'
-                    $ReportPath = Join-Path $env:TEMP "RSOP_$SafeTargetPC.html"
-
-                    Get-GPResultantSetOfPolicy `
-                        -Computer $TargetPC `
-                        -User $TargetUser `
-                        -ReportType Html `
-                        -Path $ReportPath `
-                        -ErrorAction Stop
-
-                    if (Test-Path $ReportPath) {
-                        Start-Process $ReportPath
-                    }
-                }
-                catch {
-                    Write-Host "RSOP-Auswertung fehlgeschlagen: $($_.Exception.Message)" -ForegroundColor Red
-                }
-            }
+            Start-AdminProcess -Name "Richtlinienergebnis (RSOP)" `
+                -File (Join-Path $System32 "mmc.exe") `
+                -Arguments "`"$(Join-Path $System32 'rsop.msc')`""
+        }
 
             Write-Host ""
             Read-Host "Enter drücken, um zum Hauptmenü zurückzukehren"
