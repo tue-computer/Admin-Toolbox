@@ -1272,11 +1272,13 @@ do {
         }
 
         "16" {
-            Start-AdminProcess -Name "AD-Replikation" -File (Join-Path $System32 "repadmin.exe") -Arguments "/replsummary"
+            $RepadminPath = Join-Path $System32 "repadmin.exe"
+            Start-AdminProcess -Name "AD-Replikation" -File (Join-Path $System32 "cmd.exe") -Arguments "/k `"$RepadminPath`" /replsummary" -UseADCredentials $true
         }
 
         "17" {
-            Start-AdminProcess -Name "AD-Diagnose" -File (Join-Path $System32 "dcdiag.exe") -Arguments "/q"
+            $DcdiagPath = Join-Path $System32 "dcdiag.exe"
+            Start-AdminProcess -Name "AD-Diagnose" -File (Join-Path $System32 "cmd.exe") -Arguments "/k `"$DcdiagPath`" /q" -UseADCredentials $true
         }
 
         # ----------------------------------------------------
@@ -1320,16 +1322,21 @@ do {
 
         "43" {
             $ReportPath = Join-Path $env:TEMP "GPResult.html"
+            $GpResultPath = Join-Path $System32 "gpresult.exe"
 
-            Start-AdminProcess -Name "GPResult" `
-                -File (Join-Path $System32 "gpresult.exe") `
-                -Arguments "/h `"$ReportPath`" /f"
+            & $GpResultPath /h $ReportPath /f
 
-            Start-Sleep -Seconds 2
+            Write-Host ""
+            Write-Host "GPResult Exit-Code: $LASTEXITCODE"
 
             if (Test-Path $ReportPath) {
                 Start-Process $ReportPath
             }
+            else {
+                Write-Host "Der GPResult-Bericht wurde nicht erstellt." -ForegroundColor Red
+            }
+
+            Read-Host "Enter drücken, um fortzufahren"
         }
 
         "44" {
@@ -1408,11 +1415,39 @@ do {
         }
 
         "58" {
-            Start-MmcTool -Name "Leistungsüberwachung" -SnapIn "perfmon.msc"
+            $TargetPC = (Read-Host "Ziel-PC eingeben").Trim()
+
+            if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
+                Start-MmcTool -Name "Leistungsüberwachung" -SnapIn "perfmon.msc"
+
+                Write-Host ""
+                Write-Host "In der Leistungsüberwachung verbinden mit:" -ForegroundColor Cyan
+                Write-Host $TargetPC -ForegroundColor Yellow
+                Write-Host "Dazu im Leistungsüberwachungsfenster den Zielcomputer auswählen."
+            }
         }
 
         "59" {
-            Start-AdminProcess -Name "Ressourcenmonitor" -File (Join-Path $System32 "resmon.exe")
+            $TargetPC = (Read-Host "Ziel-PC eingeben").Trim()
+
+            if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
+                try {
+                    Write-Host ""
+                    Write-Host "REMOTE-PROZESSÜBERSICHT: $TargetPC" -ForegroundColor Cyan
+                    Write-Host "------------------------------------------------------------"
+
+                    Get-CimInstance -ClassName Win32_Process -ComputerName $TargetPC -ErrorAction Stop |
+                        Sort-Object WorkingSetSize -Descending |
+                        Select-Object -First 20 ProcessId, Name,
+                            @{Name="RAM (MB)";Expression={[math]::Round($_.WorkingSetSize / 1MB, 2)}} |
+                        Format-Table -AutoSize
+                }
+                catch {
+                    Write-Host "Remoteabfrage fehlgeschlagen: $($_.Exception.Message)" -ForegroundColor Red
+                }
+
+                Read-Host "Enter drücken, um fortzufahren"
+            }
         }
 
         # ----------------------------------------------------
@@ -1431,13 +1466,15 @@ do {
             Write-Host "------------------------------------------------------------"
 
             $IPChoice = Read-Host "Auswahl"
+            $IpConfigPath = Join-Path $System32 "ipconfig.exe"
+            $CmdPath = Join-Path $System32 "cmd.exe"
 
             switch ($IPChoice) {
-                "1" { Start-AdminProcess -Name "IP-Konfiguration" -File (Join-Path $System32 "ipconfig.exe") -Arguments "/all" }
-                "2" { Start-AdminProcess -Name "DNS-Cache leeren" -File (Join-Path $System32 "ipconfig.exe") -Arguments "/flushdns" }
-                "3" { Start-AdminProcess -Name "DNS-Registrierung" -File (Join-Path $System32 "ipconfig.exe") -Arguments "/registerdns" }
-                "4" { Start-AdminProcess -Name "IP-Adresse erneuern" -File (Join-Path $System32 "ipconfig.exe") -Arguments "/renew" }
-                "5" { Start-AdminProcess -Name "DNS-Cache" -File (Join-Path $System32 "ipconfig.exe") -Arguments "/displaydns" }
+                "1" { Start-AdminProcess -Name "IP-Konfiguration" -File $CmdPath -Arguments "/k `"$IpConfigPath`" /all" -UseADCredentials $true }
+                "2" { Start-AdminProcess -Name "DNS-Cache leeren" -File $CmdPath -Arguments "/k `"$IpConfigPath`" /flushdns" -UseADCredentials $true }
+                "3" { Start-AdminProcess -Name "DNS-Registrierung" -File $CmdPath -Arguments "/k `"$IpConfigPath`" /registerdns" -UseADCredentials $true }
+                "4" { Start-AdminProcess -Name "IP-Adresse erneuern" -File $CmdPath -Arguments "/k `"$IpConfigPath`" /renew" -UseADCredentials $true }
+                "5" { Start-AdminProcess -Name "DNS-Cache" -File $CmdPath -Arguments "/k `"$IpConfigPath`" /displaydns" -UseADCredentials $true }
 
                 default {
                     Write-Host "Ungültige Auswahl!" -ForegroundColor Red
@@ -1447,11 +1484,31 @@ do {
         }
 
         "61" {
-            Start-MmcTool -Name "Windows Defender Firewall" -SnapIn "wf.msc"
+            $TargetPC = (Read-Host "Ziel-PC eingeben").Trim()
+
+            if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
+                Start-MmcTool -Name "Windows Defender Firewall" -SnapIn "wf.msc"
+
+                Write-Host ""
+                Write-Host "In der Firewall-Verwaltung verbinden mit:" -ForegroundColor Cyan
+                Write-Host $TargetPC -ForegroundColor Yellow
+                Write-Host "Dazu links den obersten Firewall-Knoten rechts anklicken und"
+                Write-Host "'Mit anderem Computer verbinden' auswählen."
+            }
         }
 
         "62" {
-            Start-MmcTool -Name "Zertifikate (Computer)" -SnapIn "certlm.msc"
+            $TargetPC = (Read-Host "Ziel-PC eingeben").Trim()
+
+            if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
+                Start-MmcTool -Name "Zertifikate (Computer)" -SnapIn "certlm.msc"
+
+                Write-Host ""
+                Write-Host "Zielcomputer: $TargetPC" -ForegroundColor Yellow
+                Write-Host "Im Zertifikate-Snap-In:"
+                Write-Host "Datei -> Snap-In hinzufügen/entfernen"
+                Write-Host "Zertifikate -> Computerkonto -> Anderer Computer"
+            }
         }
 
         "63" {
@@ -1459,7 +1516,17 @@ do {
         }
 
         "64" {
-            Start-MmcTool -Name "WMI-Verwaltung" -SnapIn "wmimgmt.msc"
+            $TargetPC = (Read-Host "Ziel-PC eingeben").Trim()
+
+            if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
+                Start-MmcTool -Name "WMI-Verwaltung" -SnapIn "wmimgmt.msc"
+
+                Write-Host ""
+                Write-Host "In der WMI-Verwaltung verbinden mit:" -ForegroundColor Cyan
+                Write-Host $TargetPC -ForegroundColor Yellow
+                Write-Host "Dazu 'WMI-Steuerung (Lokal)' rechts anklicken und"
+                Write-Host "'Mit anderem Computer verbinden' auswählen."
+            }
         }
 
         # ----------------------------------------------------
@@ -1504,8 +1571,17 @@ do {
         }
 
         "73" {
-            $IISPath = Join-Path $env:windir "System32\inetsrv\InetMgr.exe"
-            Start-AdminProcess -Name "IIS-Verwaltung" -File $IISPath
+            $TargetPC = (Read-Host "IIS-Server eingeben").Trim()
+
+            if (-not [string]::IsNullOrWhiteSpace($TargetPC)) {
+                $IISPath = Join-Path $env:windir "System32\inetsrv\InetMgr.exe"
+                Start-AdminProcess -Name "IIS-Verwaltung" -File $IISPath
+
+                Write-Host ""
+                Write-Host "Im IIS-Manager verbinden mit:" -ForegroundColor Cyan
+                Write-Host $TargetPC -ForegroundColor Yellow
+                Write-Host "Dazu 'Datei' -> 'Verbindung mit einem Server herstellen' auswählen."
+            }
         }
 
         # ----------------------------------------------------
