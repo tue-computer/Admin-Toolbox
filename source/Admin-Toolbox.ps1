@@ -1,9 +1,9 @@
-﻿
-# ============================================================
+﻿# ============================================================
 # ADMIN-TOOLBOX
 # ============================================================
 
 $ErrorActionPreference = "Stop"
+
 
 # ============================================================
 # AUTOMATISCHES UPDATE DER ADMIN-TOOLBOX
@@ -127,9 +127,6 @@ $ParentPid = __PARENT_PID__
 $UpdateFile = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__UPDATE_FILE__'))
 $TargetExe = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__TARGET_EXE__'))
 
-$LogFile = Join-Path $env:TEMP "AdminToolbox_Update_$ParentPid.log"
-$UpdateSucceeded = $false
-
 try {
 
     # Warten, bis die alte EXE beendet ist
@@ -182,35 +179,38 @@ try {
 
     # Neue Version starten
     Start-Process -FilePath $TargetExe -ErrorAction Stop
-    $UpdateSucceeded = $true
+
 }
 catch {
-    $ErrorText = ($_ | Out-String)
 
-    try {
-        Add-Type -AssemblyName System.Windows.Forms
-        [System.Windows.Forms.MessageBox]::Show(
-            "Update fehlgeschlagen:`n`n$ErrorText",
-            "Admin-Toolbox - Updatefehler",
-            [System.Windows.Forms.MessageBoxButtons]::OK,
-            [System.Windows.Forms.MessageBoxIcon]::Error
-        ) | Out-Null
-    }
-    catch {}
+    $ErrorText = $_.Exception.Message
+
+    Add-Type -AssemblyName System.Windows.Forms
+
+    [System.Windows.Forms.MessageBox]::Show(
+        "Das Update konnte nicht installiert werden:`n`n$ErrorText",
+        "Admin-Toolbox - Updatefehler",
+        [System.Windows.Forms.MessageBoxButtons]::OK,
+        [System.Windows.Forms.MessageBoxIcon]::Error
+    ) | Out-Null
 }
 finally {
-    foreach ($File in @($UpdateFile, $HelperPath, $MyInvocation.MyCommand.Path)) {
-        if ($File -and (Test-Path -LiteralPath $File)) {
-            Remove-Item -LiteralPath $File -Force -ErrorAction SilentlyContinue
-        }
+
+    # Übrig gebliebene Update-Datei entfernen
+    if (Test-Path -LiteralPath $UpdateFile) {
+        Remove-Item -LiteralPath $UpdateFile -Force -ErrorAction SilentlyContinue
     }
 
-    if ($UpdateSucceeded -and (Test-Path -LiteralPath "$TargetExe.bak")) {
+    # Übrig gebliebenes Backup entfernen
+    if (Test-Path -LiteralPath "$TargetExe.bak") {
         Remove-Item -LiteralPath "$TargetExe.bak" -Force -ErrorAction SilentlyContinue
     }
 
-    if (Test-Path -LiteralPath $LogFile) {
-        Remove-Item -LiteralPath $LogFile -Force -ErrorAction SilentlyContinue
+    # Hilfsskript selbst löschen
+    $OwnScript = $MyInvocation.MyCommand.Path
+
+    if ($OwnScript -and (Test-Path -LiteralPath $OwnScript)) {
+        Remove-Item -LiteralPath $OwnScript -Force -ErrorAction SilentlyContinue
     }
 }
 '@
