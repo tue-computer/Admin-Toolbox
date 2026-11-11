@@ -408,9 +408,26 @@ function Start-AdminProcess {
     $ProcessStarted = $false
 
     try {
-        if (-not (Test-Path $File)) {
+        # Programm auflösen (absoluter Pfad oder PATH)
+        $ResolvedFile = $null
+
+        if (Test-Path -LiteralPath $File -PathType Leaf) {
+            $ResolvedFile = (Resolve-Path -LiteralPath $File).Path
+        }
+        else {
+            $Command = Get-Command $File -CommandType Application -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+
+            if ($Command) {
+                $ResolvedFile = $Command.Source
+            }
+        }
+
+        if (-not $ResolvedFile) {
             throw "Programm wurde nicht gefunden: $File"
         }
+
+        $File = $ResolvedFile
 
         if (-not $UseADCredentials -or -not $SecureAdminPassword) {
             $StartParams = @{
