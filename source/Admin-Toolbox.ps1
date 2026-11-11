@@ -1206,8 +1206,8 @@ do {
     Write-Host ""
 
     Write-Host " GRUPPENRICHTLINIEN" -ForegroundColor Cyan
-    Write-Host " [40] Verwaltung                       [41] Client-Update"
-    Write-Host " [42] Richtlinienergebnis (lokal)      [43] Richtlinienergebnis (remote)"
+    Write-Host " [40] Verwaltung                      [41] Client-Update"
+    Write-Host " [42] Richtlinienergebnis (lokal)     [43] Richtlinienergebnis (remote)"
     Write-Host " [44] Sicherheitsrichtlinie (lokal)"
     Write-Host ""
 
@@ -1326,9 +1326,6 @@ do {
             Start-AdminProcess -Name "Richtlinienergebnis (RSOP)" `
                 -File (Join-Path $System32 "mmc.exe") `
                 -Arguments "`"$(Join-Path $System32 'rsop.msc')`""
-
-            Write-Host ""
-            Read-Host "Enter drücken, um zum Hauptmenü zurückzukehren"
         }
  
         "43" {
